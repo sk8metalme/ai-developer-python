@@ -3,3 +3,5 @@ anthropic
 PyGithub
 flask
 requests
+pytest
+pytest-mock
