@@ -9,6 +9,7 @@ from anthropic import Anthropic, AnthropicError
 from github import Github, GithubException
 from atlassian import Confluence
 from bs4 import BeautifulSoup
+from google.cloud import secretmanager
 
 # Atlassian MCP Client のインポート
 try:
@@ -35,18 +36,40 @@ logging.getLogger("httpx").setLevel(logging.DEBUG)
 # Slackに表示するアイコンのURL
 CLAUDE_ICON_URL = "https://claude.ai/favicon.ico"
 
-# --- 環境変数から認証情報を読み込み ---
-# 実行前にこれらの環境変数を設定してください
-SLACK_BOT_TOKEN = os.environ.get("SLACK_BOT_TOKEN", "").strip()
-SLACK_SIGNING_SECRET = os.environ.get("SLACK_SIGNING_SECRET", "").strip()
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-GITHUB_ACCESS_TOKEN = os.environ.get("GITHUB_ACCESS_TOKEN", "").strip()
+# --- Secret Manager クライアント ---
+def get_secret_value(secret_name: str, project_id: str = None) -> str:
+    """Google Cloud Secret Managerからシークレット値を取得する"""
+    try:
+        if project_id is None:
+            project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
+            if not project_id:
+                # プロジェクトIDが設定されていない場合は環境変数にフォールバック
+                logging.warning(f"GOOGLE_CLOUD_PROJECT not set, falling back to environment variable for {secret_name}")
+                return os.environ.get(secret_name, "").strip()
+        
+        client = secretmanager.SecretManagerServiceClient()
+        name = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
+        response = client.access_secret_version(request={"name": name})
+        secret_value = response.payload.data.decode("UTF-8").strip()
+        logging.info(f"Successfully retrieved secret: {secret_name}")
+        return secret_value
+    except Exception as e:
+        logging.warning(f"Failed to retrieve secret {secret_name} from Secret Manager: {e}")
+        # Secret Managerから取得できない場合は環境変数にフォールバック
+        return os.environ.get(secret_name, "").strip()
+
+# --- 環境変数・シークレットから認証情報を読み込み ---
+# Google Cloud環境ではSecret Managerから、ローカル環境では環境変数から取得
+SLACK_BOT_TOKEN = get_secret_value("SLACK_BOT_TOKEN")
+SLACK_SIGNING_SECRET = get_secret_value("SLACK_SIGNING_SECRET")
+ANTHROPIC_API_KEY = get_secret_value("ANTHROPIC_API_KEY")
+GITHUB_ACCESS_TOKEN = get_secret_value("GITHUB_ACCESS_TOKEN")
 
 # Confluence設定（オプショナル）
-CONFLUENCE_URL = os.environ.get("CONFLUENCE_URL", "").strip()
-CONFLUENCE_USERNAME = os.environ.get("CONFLUENCE_USERNAME", "").strip()
-CONFLUENCE_API_TOKEN = os.environ.get("CONFLUENCE_API_TOKEN", "").strip()
-CONFLUENCE_SPACE_KEY = os.environ.get("CONFLUENCE_SPACE_KEY", "DEV").strip()
+CONFLUENCE_URL = get_secret_value("CONFLUENCE_URL")
+CONFLUENCE_USERNAME = get_secret_value("CONFLUENCE_USERNAME")
+CONFLUENCE_API_TOKEN = get_secret_value("CONFLUENCE_API_TOKEN")
+CONFLUENCE_SPACE_KEY = get_secret_value("CONFLUENCE_SPACE_KEY") or "DEV"
 
 # 基本環境変数が設定されているかチェック
 if not all([SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET, ANTHROPIC_API_KEY, GITHUB_ACCESS_TOKEN]):
