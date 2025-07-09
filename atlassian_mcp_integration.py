@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
 """
 Atlassian MCP Server Integration for AI Developer Bot
-sooperset/mcp-atlassian を活用したConfluence連携
+Remote MCP Server (https://mcp.atlassian.com/v1/sse) を活用したConfluence連携
 """
 
 import os
 import asyncio
 import logging
-import subprocess
 import json
+import uuid
 from typing import Dict, List, Optional, Any
 from anthropic import Anthropic, AnthropicError
+import sseclient
+import httpx
+import aiohttp
+from urllib.parse import urljoin
 
 # --- ロギング設定 ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -25,63 +29,153 @@ CONFLUENCE_SPACE_KEY = os.environ.get("CONFLUENCE_SPACE_KEY", "DEV").strip()
 # Anthropicクライアントの初期化
 anthropic_client = Anthropic(api_key=ANTHROPIC_API_KEY)
 
-# MCP Server設定
-MCP_ATLASSIAN_DOCKER_IMAGE = "ghcr.io/sooperset/mcp-atlassian:latest"
+# Remote MCP Server設定
+REMOTE_MCP_SERVER_URL = "https://mcp.atlassian.com/v1/sse"
+REMOTE_MCP_API_KEY = os.environ.get("ATLASSIAN_MCP_API_KEY", "").strip()  # 必要に応じて設定
 
 class AtlassianMCPClient:
-    """sooperset/mcp-atlassian との連携クライアント"""
+    """Remote MCP Server (https://mcp.atlassian.com/v1/sse) との連携クライアント"""
     
     def __init__(self):
-        self.docker_image = MCP_ATLASSIAN_DOCKER_IMAGE
+        self.mcp_server_url = REMOTE_MCP_SERVER_URL
+        self.mcp_api_key = REMOTE_MCP_API_KEY
         self.anthropic_client = anthropic_client
         self.confluence_url = CONFLUENCE_URL
         self.confluence_username = CONFLUENCE_USERNAME
         self.confluence_api_token = CONFLUENCE_API_TOKEN
         self.confluence_space_key = CONFLUENCE_SPACE_KEY
         
-        # Docker イメージの確認とプル
-        self._ensure_docker_image()
+        # セッション管理
+        self.session_id = None
+        self.session_timeout = 300  # 5分
+        
+        # HTTP clients
+        self.http_client = httpx.AsyncClient(timeout=30.0)
+        self.sync_client = httpx.Client(timeout=30.0)
     
-    def _ensure_docker_image(self):
-        """Dockerイメージが存在するかチェックし、なければプル"""
-        try:
-            # イメージの存在確認
-            result = subprocess.run(
-                ["docker", "image", "inspect", self.docker_image],
-                capture_output=True,
-                text=True
-            )
-            
-            if result.returncode != 0:
-                logging.info(f"Docker イメージをプル中: {self.docker_image}")
-                subprocess.run(
-                    ["docker", "pull", self.docker_image],
-                    check=True
-                )
-                logging.info("Docker イメージのプル完了")
-            else:
-                logging.info(f"Docker イメージが利用可能: {self.docker_image}")
+    async def _ensure_session(self):
+        """リモートMCPサーバーとのセッションを確立"""
+        if self.session_id is None:
+            try:
+                session_data = {
+                    "confluence_url": self.confluence_url,
+                    "username": self.confluence_username,
+                    "api_token": self.confluence_api_token
+                }
                 
-        except subprocess.CalledProcessError as e:
-            logging.error(f"Docker イメージの準備に失敗: {e}")
-            raise
-        except FileNotFoundError:
-            logging.error("Docker がインストールされていません")
-            raise
+                headers = {
+                    "Content-Type": "application/json",
+                    "Accept": "application/json"
+                }
+                
+                if self.mcp_api_key:
+                    headers["Authorization"] = f"Bearer {self.mcp_api_key}"
+                
+                response = await self.http_client.post(
+                    urljoin(self.mcp_server_url, "sessions"),
+                    json=session_data,
+                    headers=headers
+                )
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    self.session_id = result.get("session_id")
+                    logging.info(f"MCP セッション確立: {self.session_id}")
+                else:
+                    logging.error(f"MCP セッション確立失敗: {response.status_code} {response.text}")
+                    # フォールバックとして直接API呼び出しを使用
+                    self.session_id = "fallback"
+                    
+            except Exception as e:
+                logging.error(f"MCP セッション確立エラー: {e}")
+                self.session_id = "fallback"
     
-    def _run_mcp_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        """MCP ツールを実行（フォールバック付き）"""
+    async def _run_mcp_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """リモートMCP ツールを実行（フォールバック付き）"""
         try:
-            # まず直接API呼び出しでフォールバック
-            return self._fallback_to_direct_api(tool_name, arguments)
+            # セッションを確立
+            await self._ensure_session()
+            
+            # フォールバックの場合は直接API呼び出し
+            if self.session_id == "fallback":
+                return await self._fallback_to_direct_api(tool_name, arguments)
+            
+            # リモートMCPサーバーへのSSEリクエストを実行
+            return await self._execute_sse_request(tool_name, arguments)
             
         except Exception as e:
             logging.error(f"MCP ツール実行エラー: {e}")
+            # エラー時は直接API呼び出しにフォールバック
+            return await self._fallback_to_direct_api(tool_name, arguments)
+    
+    async def _execute_sse_request(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """リモートMCPサーバーへのSSEリクエストを実行"""
+        try:
+            request_id = str(uuid.uuid4())
+            
+            request_data = {
+                "id": request_id,
+                "method": "tools/call",
+                "params": {
+                    "name": tool_name,
+                    "arguments": arguments
+                }
+            }
+            
+            headers = {
+                "Content-Type": "application/json",
+                "Accept": "text/event-stream",
+                "Cache-Control": "no-cache"
+            }
+            
+            if self.mcp_api_key:
+                headers["Authorization"] = f"Bearer {self.mcp_api_key}"
+            
+            # セッションIDをヘッダーに追加
+            if self.session_id and self.session_id != "fallback":
+                headers["X-Session-ID"] = self.session_id
+            
+            async with self.http_client.stream(
+                "POST",
+                self.mcp_server_url,
+                json=request_data,
+                headers=headers
+            ) as response:
+                if response.status_code != 200:
+                    logging.error(f"SSE リクエスト失敗: {response.status_code}")
+                    raise Exception(f"SSE リクエスト失敗: {response.status_code}")
+                
+                result = None
+                async for line in response.aiter_lines():
+                    if line.startswith("data: "):
+                        data = line[6:]  # "data: " を除去
+                        try:
+                            event_data = json.loads(data)
+                            if event_data.get("id") == request_id:
+                                if "result" in event_data:
+                                    result = event_data["result"]
+                                    break
+                                elif "error" in event_data:
+                                    raise Exception(f"MCP エラー: {event_data['error']}")
+                        except json.JSONDecodeError:
+                            continue
+                
+                if result is None:
+                    raise Exception("MCP レスポンスが受信されませんでした")
+                
+                return {
+                    "success": True,
+                    "result": result
+                }
+                
+        except Exception as e:
+            logging.error(f"SSE リクエストエラー: {e}")
             raise
     
-    def _fallback_to_direct_api(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    async def _fallback_to_direct_api(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """直接APIへのフォールバック実装"""
         try:
+            logging.info(f"直接API呼び出しにフォールバック: {tool_name}")
             from atlassian import Confluence
             
             # Confluence APIクライアントの初期化
@@ -172,7 +266,7 @@ class AtlassianMCPClient:
                 "error": str(e)
             }
         
-    def create_confluence_page_with_mcp(self, space_key: str, title: str, content: str, parent_id: str = None) -> dict:
+    async def create_confluence_page_with_mcp(self, space_key: str, title: str, content: str, parent_id: str = None) -> dict:
         """
         sooperset/mcp-atlassian を使用してConfluenceページを作成
         
@@ -199,12 +293,13 @@ class AtlassianMCPClient:
                 arguments["parent_id"] = parent_id
             
             # confluence_create_page ツールを実行
-            result = self._run_mcp_tool("confluence_create_page", arguments)
+            result = await self._run_mcp_tool("confluence_create_page", arguments)
             
             # 成功した場合のレスポンス処理
             if result.get("success", False):
-                page_url = result.get("page_url", "")
-                page_id = result.get("page_id", "")
+                result_data = result.get("result", {})
+                page_url = result_data.get("page_url", "")
+                page_id = result_data.get("page_id", "")
                 
                 logging.info(f"Confluence ページ作成完了: {page_url}")
                 
@@ -235,7 +330,7 @@ class AtlassianMCPClient:
                 "space_key": space_key
             }
     
-    def get_confluence_page_with_mcp(self, page_url: str) -> dict:
+    async def get_confluence_page_with_mcp(self, page_url: str) -> dict:
         """
         sooperset/mcp-atlassian を使用してConfluenceページ内容を取得
         
@@ -255,11 +350,12 @@ class AtlassianMCPClient:
                 raise Exception(f"ページURLからページIDを抽出できませんでした: {page_url}")
             
             # confluence_get_page ツールを実行
-            result = self._run_mcp_tool("confluence_get_page", {"page_id": page_id})
+            result = await self._run_mcp_tool("confluence_get_page", {"page_id": page_id})
             
             if result.get("success", False):
-                content = result.get("content", "")
-                title = result.get("title", "")
+                result_data = result.get("result", {})
+                content = result_data.get("content", "")
+                title = result_data.get("title", "")
                 
                 logging.info(f"Confluence ページ取得完了: {title}")
                 
@@ -306,7 +402,7 @@ class AtlassianMCPClient:
         
         return ""
     
-    def search_confluence_pages_with_mcp(self, query: str, space_key: str = None) -> dict:
+    async def search_confluence_pages_with_mcp(self, query: str, space_key: str = None) -> dict:
         """
         sooperset/mcp-atlassian を使用してConfluenceページを検索
         
@@ -326,10 +422,11 @@ class AtlassianMCPClient:
                 cql_query += f" AND space.key = '{space_key}'"
             
             # confluence_search ツールを実行
-            result = self._run_mcp_tool("confluence_search", {"cql": cql_query})
+            result = await self._run_mcp_tool("confluence_search", {"cql": cql_query})
             
             if result.get("success", False):
-                results = result.get("results", [])
+                result_data = result.get("result", {})
+                results = result_data.get("results", [])
                 
                 logging.info(f"Confluence 検索完了: {len(results)}件の結果")
                 
@@ -357,7 +454,7 @@ class AtlassianMCPClient:
                 "query": query
             }
     
-    def generate_design_document_with_mcp(self, project_name: str, feature_name: str, requirements: str) -> str:
+    async def generate_design_document_with_mcp(self, project_name: str, feature_name: str, requirements: str) -> str:
         """
         MCP対応版の設計ドキュメント生成
         
@@ -539,33 +636,37 @@ class AtlassianMCPClient:
 atlassian_mcp_client = AtlassianMCPClient()
 
 # 外部から使用する関数
-def create_confluence_page_mcp(space_key: str, title: str, content: str, parent_id: str = None):
+async def create_confluence_page_mcp(space_key: str, title: str, content: str, parent_id: str = None):
     """MCP経由でConfluenceページを作成"""
-    return atlassian_mcp_client.create_confluence_page_with_mcp(space_key, title, content, parent_id)
+    return await atlassian_mcp_client.create_confluence_page_with_mcp(space_key, title, content, parent_id)
 
-def get_confluence_page_mcp(page_url: str):
+async def get_confluence_page_mcp(page_url: str):
     """MCP経由でConfluenceページ内容を取得"""
-    return atlassian_mcp_client.get_confluence_page_with_mcp(page_url)
+    return await atlassian_mcp_client.get_confluence_page_with_mcp(page_url)
 
-def search_confluence_pages_mcp(query: str, space_key: str = None):
+async def search_confluence_pages_mcp(query: str, space_key: str = None):
     """MCP経由でConfluenceページを検索"""
-    return atlassian_mcp_client.search_confluence_pages_with_mcp(query, space_key)
+    return await atlassian_mcp_client.search_confluence_pages_with_mcp(query, space_key)
 
-def generate_design_document_mcp(project_name: str, feature_name: str, requirements: str):
+async def generate_design_document_mcp(project_name: str, feature_name: str, requirements: str):
     """MCP対応版設計ドキュメント生成"""
-    return atlassian_mcp_client.generate_design_document_with_mcp(project_name, feature_name, requirements)
+    return await atlassian_mcp_client.generate_design_document_with_mcp(project_name, feature_name, requirements)
 
 
 if __name__ == "__main__":
     # テスト実行
-    print("=== Atlassian MCP Client テスト ===")
+    async def test_mcp_client():
+        print("=== Atlassian MCP Client テスト ===")
+        
+        # 簡単なテスト
+        test_project = "test-app"
+        test_feature = "ユーザー認証機能"
+        test_requirements = "JWT認証を使用し、ログイン・ログアウト機能を含む"
+        
+        print(f"テスト設計ドキュメント生成: {test_project} - {test_feature}")
+        design_doc = await generate_design_document_mcp(test_project, test_feature, test_requirements)
+        print(f"設計ドキュメント生成完了: {len(design_doc)}文字")
+        print("=" * 50)
     
-    # 簡単なテスト
-    test_project = "test-app"
-    test_feature = "ユーザー認証機能"
-    test_requirements = "JWT認証を使用し、ログイン・ログアウト機能を含む"
-    
-    print(f"テスト設計ドキュメント生成: {test_project} - {test_feature}")
-    design_doc = generate_design_document_mcp(test_project, test_feature, test_requirements)
-    print(f"設計ドキュメント生成完了: {len(design_doc)}文字")
-    print("=" * 50)
+    # 非同期実行
+    asyncio.run(test_mcp_client())

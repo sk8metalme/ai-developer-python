@@ -114,7 +114,7 @@ Slackコマンド形式：`/design-mcp [プロジェクト名] の [機能名] �
 
 ボットは以下の処理を行います：
 1. Claude APIで詳細な設計ドキュメントを生成
-2. sooperset/mcp-atlassian経由（実際は直接API呼び出し）でConfluenceに設計ドキュメントページを作成
+2. リモートMCPサーバー (https://mcp.atlassian.com/v1/sse) 経由でConfluenceに設計ドキュメントページを作成
 3. 設計書URLをSlackで応答
 
 ### 新機能：設計ベース開発
@@ -130,7 +130,7 @@ Slackコマンド形式：`/develop-from-design-mcp [confluence-url] の [ファ
 例：`/develop-from-design-mcp https://company.atlassian.net/wiki/spaces/DEV/pages/123456/User-Auth の auth.py に実装`
 
 ボットは以下の処理を行います：
-1. sooperset/mcp-atlassian経由（実際は直接API呼び出し）でConfluenceのURLから設計ドキュメントを取得
+1. リモートMCPサーバー (https://mcp.atlassian.com/v1/sse) 経由でConfluenceのURLから設計ドキュメントを取得
 2. 設計内容に基づいてClaude APIでコードを生成
 3. 生成されたコードをSlackで応答（将来：GitHubへの自動PR作成）
 
@@ -141,7 +141,7 @@ Slackコマンド形式：`/confluence-search [検索クエリ] [in:スペース
 例：`/confluence-search ユーザー認証 in:DEV`
 
 ボットは以下の処理を行います：
-1. sooperset/mcp-atlassian経由（実際は直接API呼び出し）でConfluenceページを検索
+1. リモートMCPサーバー (https://mcp.atlassian.com/v1/sse) 経由でConfluenceページを検索
 2. 検索結果をSlackで応答
 
 ## トラブルシューティング
@@ -169,24 +169,27 @@ Slackアプリには以下が必要です：
 ## MCP（Model Context Protocol）について
 
 ### 概要
-このボットは、sooperset/mcp-atlassianのDockerイメージを使用してConfluence連携を実現しています。ただし、実際の実装では直接API呼び出しをフォールバック機能として使用しています。
+このボットは、リモートMCPサーバー (https://mcp.atlassian.com/v1/sse) を使用してConfluence連携を実現しています。SSE (Server-Sent Events) プロトコルでリモートサーバーと通信し、フォールバック機能として直接API呼び出しを使用しています。
 
 ### MCP実装の特徴
-- **Docker基盤**: sooperset/mcp-atlassianのDockerイメージを使用
-- **フォールバック機能**: 現在の実装では直接API呼び出しにフォールバック
-- **依存関係**: atlassian-python-api、beautifulsoup4、markdownライブラリを使用
+- **リモートMCPサーバー**: https://mcp.atlassian.com/v1/sse を使用
+- **SSEプロトコル**: Server-Sent Events でリアルタイム通信
+- **フォールバック機能**: エラー時は直接API呼び出しにフォールバック
+- **依存関係**: sseclient-py、httpx、aiohttp、atlassian-python-api、beautifulsoup4、markdownライブラリを使用
 - **認証**: 環境変数による認証情報の管理
 
 ### 前提条件
-- Docker環境（sooperset/mcp-atlassianイメージ用）
+- リモートMCPサーバーへのアクセス権限
 - Atlassian Cloud アカウント
 - Confluence Cloud インスタンス
 - 適切な環境変数設定
 
 ### 実装の詳細
 現在の実装では以下の動作を行います：
-1. sooperset/mcp-atlassianのDockerイメージを確認・プル
-2. 実際の処理は直接API呼び出し（`_fallback_to_direct_api`）で実行
-3. エラーハンドリングと結果の統一
+1. リモートMCPサーバーとのセッション確立
+2. SSEプロトコルでリアルタイム通信
+3. エラー時は直接API呼び出しにフォールバック
+4. 非同期処理でパフォーマンスを最適化
 
-詳細は `MCP_SIMPLIFICATION.md` を参照してください。
+### 環境変数
+- `ATLASSIAN_MCP_API_KEY`: リモートMCPサーバーのAPIキー（オプション）

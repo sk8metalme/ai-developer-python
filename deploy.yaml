@@ -1,0 +1,85 @@
+# Google Cloud Functions デプロイ設定
+# 使用方法: gcloud functions deploy slack-ai-bot --gen2 --source=. --entry-point=slack_bot --runtime=python313 --trigger=http --allow-unauthenticated --set-env-vars-file=env.yaml --timeout=540 --memory=1Gi --region=asia-northeast1
+
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: slack-ai-bot
+  annotations:
+    run.googleapis.com/ingress: all
+    run.googleapis.com/ingress-status: all
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/maxScale: "10"
+        autoscaling.knative.dev/minScale: "0"
+        run.googleapis.com/cpu-throttling: "true"
+        run.googleapis.com/execution-environment: gen2
+        run.googleapis.com/memory: "1Gi"
+        run.googleapis.com/timeout: "540s"
+    spec:
+      containerConcurrency: 1
+      containers:
+      - image: gcr.io/PROJECT_ID/slack-ai-bot
+        ports:
+        - containerPort: 8080
+        env:
+        - name: SLACK_BOT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: slack-bot-token
+              key: token
+        - name: SLACK_SIGNING_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: slack-signing-secret
+              key: secret
+        - name: ANTHROPIC_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: anthropic-api-key
+              key: key
+        - name: GITHUB_ACCESS_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: github-access-token
+              key: token
+        - name: CONFLUENCE_URL
+          valueFrom:
+            secretKeyRef:
+              name: confluence-url
+              key: url
+        - name: CONFLUENCE_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: confluence-username
+              key: username
+        - name: CONFLUENCE_API_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: confluence-api-token
+              key: token
+        - name: CONFLUENCE_SPACE_KEY
+          value: "DEV"
+        - name: ATLASSIAN_MCP_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: atlassian-mcp-api-key
+              key: key
+        resources:
+          limits:
+            memory: "1Gi"
+            cpu: "1"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5

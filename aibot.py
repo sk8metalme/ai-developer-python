@@ -568,7 +568,7 @@ def handle_develop_from_design_command(ack, body, say):
     thread = threading.Thread(target=process_design_based_development_task, args=(body, body['response_url']))
     thread.start()
 
-def process_design_task_mcp(body, response_url):
+async def process_design_task_mcp(body, response_url):
     """MCP版設計ドキュメント作成タスクの処理"""
     try:
         # Slackからの指示テキストをパース
@@ -602,7 +602,7 @@ def process_design_task_mcp(body, response_url):
         
         # 1. MCP版設計ドキュメント生成
         send_message(f"🤖 `{project_name}`の`{feature_name}`機能の設計ドキュメントをMCP経由で生成中...")
-        design_content = generate_design_document_mcp(project_name, feature_name, requirements)
+        design_content = await generate_design_document_mcp(project_name, feature_name, requirements)
         
         # 2. MCP経由でConfluenceページ作成
         send_message("📝 Atlassian MCP経由でConfluenceに設計ドキュメントを作成中...")
@@ -611,7 +611,7 @@ def process_design_task_mcp(body, response_url):
         # デフォルトスペースキーを使用（環境変数から取得、なければDEV）
         default_space = os.environ.get("CONFLUENCE_SPACE_KEY", "DEV").strip()
         
-        result = create_confluence_page_mcp(default_space, page_title, design_content)
+        result = await create_confluence_page_mcp(default_space, page_title, design_content)
         
         if result["success"]:
             page_url = result.get("page_url", "URLの抽出に失敗")
@@ -630,7 +630,7 @@ def process_design_task_mcp(body, response_url):
         logging.error(f"MCP設計タスク処理エラー: {e}")
         requests.post(response_url, json={"text": f"MCP設計ドキュメント作成中にエラーが発生しました: {e}"})
 
-def process_design_based_development_task_mcp(body, response_url):
+async def process_design_based_development_task_mcp(body, response_url):
     """MCP版設計ベース開発タスクの処理"""
     try:
         # Slackからの指示テキストをパース
@@ -664,7 +664,7 @@ def process_design_based_development_task_mcp(body, response_url):
         
         # 1. MCP経由でConfluenceから設計ドキュメント取得
         send_message(f"📖 Atlassian MCP経由でConfluenceから設計ドキュメントを取得中...")
-        page_result = get_confluence_page_mcp(confluence_url)
+        page_result = await get_confluence_page_mcp(confluence_url)
         
         if not page_result["success"]:
             error_msg = page_result.get("error", "不明なエラー")
@@ -702,7 +702,14 @@ def handle_design_command_mcp(ack, body, say):
     ack(f"🤖 MCP設計依頼を受け付けました: `{body['text']}`\nAtlassian MCP経由で設計ドキュメントの生成を開始します...")
     
     # バックグラウンドでタスクを実行
-    thread = threading.Thread(target=process_design_task_mcp, args=(body, body['response_url']))
+    def run_async_task():
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(process_design_task_mcp(body, body['response_url']))
+        finally:
+            loop.close()
+    thread = threading.Thread(target=run_async_task)
     thread.start()
 
 @app.command("/develop-from-design-mcp")
@@ -712,7 +719,14 @@ def handle_develop_from_design_command_mcp(ack, body, say):
     ack(f"🤖 MCP設計ベース開発依頼を受け付けました: `{body['text']}`\nAtlassian MCP経由で設計ドキュメントの解析を開始します...")
     
     # バックグラウンドでタスクを実行
-    thread = threading.Thread(target=process_design_based_development_task_mcp, args=(body, body['response_url']))
+    def run_async_task():
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(process_design_based_development_task_mcp(body, body['response_url']))
+        finally:
+            loop.close()
+    thread = threading.Thread(target=run_async_task)
     thread.start()
 
 @app.command("/confluence-search")
@@ -721,7 +735,7 @@ def handle_confluence_search_command(ack, body, say):
     # Slackの3秒タイムアウトに応答
     ack(f"🔍 Confluence検索依頼を受け付けました: `{body['text']}`\nAtlassian MCP経由で検索を開始します...")
     
-    def process_search():
+    async def process_search():
         try:
             text = body.get("text", "")
             
@@ -743,7 +757,7 @@ def handle_confluence_search_command(ack, body, say):
             
             # MCP経由で検索実行
             send_message(f"🔍 「{query}」を検索中...")
-            result = search_confluence_pages_mcp(query, space_key)
+            result = await search_confluence_pages_mcp(query, space_key)
             
             if result["success"]:
                 send_message(f"✅ 検索完了しました！\n\n{result['results']}")
@@ -756,7 +770,14 @@ def handle_confluence_search_command(ack, body, say):
             requests.post(body['response_url'], json={"text": f"検索中にエラーが発生しました: {e}"})
     
     # バックグラウンドでタスクを実行
-    thread = threading.Thread(target=process_search)
+    def run_async_task():
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(process_search())
+        finally:
+            loop.close()
+    thread = threading.Thread(target=run_async_task)
     thread.start()
 
 if __name__ == "__main__":
