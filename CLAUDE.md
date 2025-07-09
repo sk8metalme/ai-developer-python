@@ -10,14 +10,14 @@
 
 アプリケーションは以下のコンポーネントで構成されています：
 
-- **Slack連携**: Slack BoltフレームワークとFlaskアダプターを使用して複数のスラッシュコマンドを処理（`/develop`, `/design`, `/design-mcp`, `/develop-from-design`, `/develop-from-design-mcp`, `/confluence-search`）
+- **Slack連携**: Slack BoltフレームワークとSocket Modeを使用して複数のスラッシュコマンドを処理（`/develop`, `/design`, `/design-mcp`, `/develop-from-design`, `/develop-from-design-mcp`, `/confluence-search`）
 - **GitHub連携**: PyGithubライブラリを使用したリポジトリ操作（ファイル読み取り、ブランチ作成、PR作成）
 - **AI連携**: 自然言語指示に基づくコード生成のためのAnthropic Claude API
 - **Confluence連携**: 
-  - **MCP版**: sooperset/mcp-atlassianのDockerイメージを使用した実装（フォールバック付き）
+  - **MCP版**: リモートMCPサーバー (https://mcp.atlassian.com/v1/sse) を使用した実装（フォールバック付き）
   - **Direct API版**: atlassian-python-api を使用した直接API呼び出し
 - **非同期処理**: Slackの3秒タイムアウトをブロックしない長時間実行タスクの処理
-- **HTTPサーバー**: Slack webhookリクエストを受信するFlaskベースのHTTPサーバー
+- **Socket Mode**: WebSocketベースの双方向通信（外部エンドポイント不要）
 
 ## 主要コンポーネント
 
@@ -45,7 +45,7 @@
 
 アプリケーションには4つの基本環境変数が必要です：
 - `SLACK_BOT_TOKEN`: Slackボット認証トークン（`commands`スコープが必要）
-- `SLACK_SIGNING_SECRET`: リクエスト検証用のSlackアプリ署名シークレット
+- `SLACK_APP_TOKEN`: Socket Mode用のApp-Level Token（`connections:write`スコープが必要）
 - `ANTHROPIC_API_KEY`: コード生成用のClaude APIキー（末尾の改行文字がないことを確認）
 - `GITHUB_ACCESS_TOKEN`: リポジトリ操作用の`repo`スコープを持つGitHub個人アクセストークン
 
@@ -72,7 +72,7 @@ source setup-env.sh
 python aibot.py
 ```
 
-ボットはFlaskを使用してHTTPモードで実行され、ポート3000でリッスンします（PORT環境変数で設定可能）。Slack webhookリクエスト用の`/slack/commands`エンドポイントを公開します。
+ボットはSocket Modeで実行され、SlackとWebSocket接続を確立します。外部エンドポイントは不要です。
 
 ## 依存関係
 
@@ -156,15 +156,16 @@ Slackコマンド形式：`/confluence-search [検索クエリ] [in:スペース
 ### Slackボット設定要件
 
 Slackアプリには以下が必要です：
+- **Socket Mode**: 有効化必須
+- **App-Level Token**: `connections:write`スコープ付きトークンが必要
 - **OAuthスコープ**: `commands`（スラッシュコマンド用）
-- **スラッシュコマンド**: サーバーの`/slack/commands`エンドポイントを指す以下のコマンド
+- **スラッシュコマンド**: 以下のコマンド（Request URLは不要）
   - `/develop`: 従来の開発機能
   - `/design`: 設計ドキュメント作成（従来版）
   - `/design-mcp`: 設計ドキュメント作成（MCP版）
   - `/develop-from-design`: 設計ベース開発（従来版）
   - `/develop-from-design-mcp`: 設計ベース開発（MCP版）
   - `/confluence-search`: Confluence検索
-- **リクエストURL**: `https://your-server.com/slack/commands`
 
 ## MCP（Model Context Protocol）について
 

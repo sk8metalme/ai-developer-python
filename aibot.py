@@ -61,7 +61,7 @@ def get_secret_value(secret_name: str, project_id: str = None) -> str:
 # --- 環境変数・シークレットから認証情報を読み込み ---
 # Google Cloud環境ではSecret Managerから、ローカル環境では環境変数から取得
 SLACK_BOT_TOKEN = get_secret_value("SLACK_BOT_TOKEN")
-SLACK_SIGNING_SECRET = get_secret_value("SLACK_SIGNING_SECRET")
+SLACK_APP_TOKEN = get_secret_value("SLACK_APP_TOKEN")  # Socket Mode用
 ANTHROPIC_API_KEY = get_secret_value("ANTHROPIC_API_KEY")
 GITHUB_ACCESS_TOKEN = get_secret_value("GITHUB_ACCESS_TOKEN")
 
@@ -72,8 +72,8 @@ CONFLUENCE_API_TOKEN = get_secret_value("CONFLUENCE_API_TOKEN")
 CONFLUENCE_SPACE_KEY = get_secret_value("CONFLUENCE_SPACE_KEY") or "DEV"
 
 # 基本環境変数が設定されているかチェック
-if not all([SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET, ANTHROPIC_API_KEY, GITHUB_ACCESS_TOKEN]):
-    raise ValueError("必要な環境変数がすべて設定されていません。SLACK_BOT_TOKEN, SLACK_SIGNING_SECRET, ANTHROPIC_API_KEY, GITHUB_ACCESS_TOKEN を確認してください。")
+if not all([SLACK_BOT_TOKEN, SLACK_APP_TOKEN, ANTHROPIC_API_KEY, GITHUB_ACCESS_TOKEN]):
+    raise ValueError("必要な環境変数がすべて設定されていません。SLACK_BOT_TOKEN, SLACK_APP_TOKEN, ANTHROPIC_API_KEY, GITHUB_ACCESS_TOKEN を確認してください。")
 
 # Confluence設定のチェック
 CONFLUENCE_ENABLED = all([CONFLUENCE_URL, CONFLUENCE_USERNAME, CONFLUENCE_API_TOKEN])
@@ -83,7 +83,7 @@ else:
     logging.warning("Confluence環境変数が不完全です。Confluence機能は無効になります。")
 
 # --- 各種クライアントの初期化 ---
-app = App(token=SLACK_BOT_TOKEN, signing_secret=SLACK_SIGNING_SECRET, process_before_response=True)
+app = App(token=SLACK_BOT_TOKEN, process_before_response=True)
 anthropic_client = Anthropic(api_key=ANTHROPIC_API_KEY)
 github_client = Github(GITHUB_ACCESS_TOKEN)
 
@@ -780,24 +780,12 @@ def handle_confluence_search_command(ack, body, say):
     thread = threading.Thread(target=run_async_task)
     thread.start()
 
-# Flask アプリケーションを作成（グローバルスコープ）
-from slack_bolt.adapter.flask import SlackRequestHandler
-from flask import Flask, request, jsonify
-
-flask_app = Flask(__name__)
-handler = SlackRequestHandler(app)
-
-@flask_app.route("/slack/commands", methods=["POST"])
-def slack_commands():
-    return handler.handle(request)
-
-@flask_app.route("/health", methods=["GET"])
-def health_check():
-    return jsonify({"status": "healthy", "service": "slack-ai-bot"}), 200
-
 if __name__ == "__main__":
-    logging.info("🤖 Slack AI開発ボットを起動します (HTTP Mode)...")
+    logging.info("🤖 Slack AI開発ボットを起動します (Socket Mode)...")
     
-    port = int(os.environ.get("PORT", 8080))
-    logging.info(f"Starting Flask app on port {port}")
-    flask_app.run(host="0.0.0.0", port=port, debug=False)
+    # Socket Mode Handler の初期化
+    from slack_bolt.adapter.socket_mode import SocketModeHandler
+    
+    # Socket Mode で起動
+    socket_mode_handler = SocketModeHandler(app, SLACK_APP_TOKEN)
+    socket_mode_handler.start()

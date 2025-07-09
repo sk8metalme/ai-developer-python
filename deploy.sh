@@ -5,7 +5,7 @@
 SERVICE_NAME="slack-ai-bot"
 REGION="asia-northeast1"
 PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-your-project-id}"
-IMAGE_NAME="gcr.io/${PROJECT_ID}/${SERVICE_NAME}"
+IMAGE_NAME="asia-northeast1-docker.pkg.dev/${PROJECT_ID}/slack-ai-bot/${SERVICE_NAME}"
 TIMEOUT="540s"
 MEMORY="1Gi"
 MAX_INSTANCES="10"
@@ -25,13 +25,13 @@ gcloud auth list --filter=status:ACTIVE --format="value(account)"
 echo "🔧 Cloud Run API を有効化中..."
 gcloud services enable run.googleapis.com --project=${PROJECT_ID}
 gcloud services enable cloudbuild.googleapis.com --project=${PROJECT_ID}
-gcloud services enable containerregistry.googleapis.com --project=${PROJECT_ID}
+gcloud services enable artifactregistry.googleapis.com --project=${PROJECT_ID}
 
 # Secret Manager にシークレットが存在するか確認
 echo "🔐 Secret Manager のシークレットを確認中..."
 required_secrets=(
     "SLACK_BOT_TOKEN"
-    "SLACK_SIGNING_SECRET"
+    "SLACK_APP_TOKEN"
     "ANTHROPIC_API_KEY"
     "GITHUB_ACCESS_TOKEN"
     "CONFLUENCE_URL"
@@ -83,7 +83,7 @@ gcloud run deploy ${SERVICE_NAME} \
     --min-instances=${MIN_INSTANCES} \
     --port=8080 \
     --set-env-vars="CONFLUENCE_SPACE_KEY=DEV,LOG_LEVEL=INFO,GOOGLE_CLOUD_PROJECT=${PROJECT_ID}" \
-    --update-secrets="SLACK_BOT_TOKEN=SLACK_BOT_TOKEN:latest,SLACK_SIGNING_SECRET=SLACK_SIGNING_SECRET:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,GITHUB_ACCESS_TOKEN=GITHUB_ACCESS_TOKEN:latest,CONFLUENCE_URL=CONFLUENCE_URL:latest,CONFLUENCE_USERNAME=CONFLUENCE_USERNAME:latest,CONFLUENCE_API_TOKEN=CONFLUENCE_API_TOKEN:latest" \
+    --update-secrets="SLACK_BOT_TOKEN=SLACK_BOT_TOKEN:latest,SLACK_APP_TOKEN=SLACK_APP_TOKEN:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,GITHUB_ACCESS_TOKEN=GITHUB_ACCESS_TOKEN:latest,CONFLUENCE_URL=CONFLUENCE_URL:latest,CONFLUENCE_USERNAME=CONFLUENCE_USERNAME:latest,CONFLUENCE_API_TOKEN=CONFLUENCE_API_TOKEN:latest" \
     --verbosity=info
 
 if [ $? -eq 0 ]; then
