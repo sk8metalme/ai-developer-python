@@ -5,3 +5,6 @@ flask
 requests
 pytest
 pytest-mock
+atlassian-python-api
+beautifulsoup4
+markdown
