@@ -749,4 +749,6 @@ if __name__ == "__main__":
     def slack_commands():
         return handler.handle(request)
     
-    flask_app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8080)), debug=False)
+    port = int(os.environ.get("PORT", 8080))
+    logging.info(f"Starting Flask app on port {port}")
+    flask_app.run(host="0.0.0.0", port=port, debug=False)
