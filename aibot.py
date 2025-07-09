@@ -780,18 +780,23 @@ def handle_confluence_search_command(ack, body, say):
     thread = threading.Thread(target=run_async_task)
     thread.start()
 
+# Flask アプリケーションを作成（グローバルスコープ）
+from slack_bolt.adapter.flask import SlackRequestHandler
+from flask import Flask, request, jsonify
+
+flask_app = Flask(__name__)
+handler = SlackRequestHandler(app)
+
+@flask_app.route("/slack/commands", methods=["POST"])
+def slack_commands():
+    return handler.handle(request)
+
+@flask_app.route("/health", methods=["GET"])
+def health_check():
+    return jsonify({"status": "healthy", "service": "slack-ai-bot"}), 200
+
 if __name__ == "__main__":
     logging.info("🤖 Slack AI開発ボットを起動します (HTTP Mode)...")
-    # app.start() はWebサーバーを起動します
-    from slack_bolt.adapter.flask import SlackRequestHandler
-    from flask import Flask, request
-    
-    flask_app = Flask(__name__)
-    handler = SlackRequestHandler(app)
-    
-    @flask_app.route("/slack/commands", methods=["POST"])
-    def slack_commands():
-        return handler.handle(request)
     
     port = int(os.environ.get("PORT", 8080))
     logging.info(f"Starting Flask app on port {port}")
