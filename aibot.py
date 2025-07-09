@@ -60,16 +60,53 @@ def get_secret_value(secret_name: str, project_id: str = None) -> str:
 
 # --- 環境変数・シークレットから認証情報を読み込み ---
 # Google Cloud環境ではSecret Managerから、ローカル環境では環境変数から取得
-SLACK_BOT_TOKEN = get_secret_value("SLACK_BOT_TOKEN")
-SLACK_APP_TOKEN = get_secret_value("SLACK_APP_TOKEN")  # Socket Mode用
-ANTHROPIC_API_KEY = get_secret_value("ANTHROPIC_API_KEY")
-GITHUB_ACCESS_TOKEN = get_secret_value("GITHUB_ACCESS_TOKEN")
+import concurrent.futures
+import time
+
+def load_secrets_parallel():
+    """並行処理でシークレットを読み込み"""
+    secrets = {}
+    secret_names = [
+        "SLACK_BOT_TOKEN",
+        "SLACK_APP_TOKEN",
+        "ANTHROPIC_API_KEY", 
+        "GITHUB_ACCESS_TOKEN",
+        "CONFLUENCE_URL",
+        "CONFLUENCE_USERNAME",
+        "CONFLUENCE_API_TOKEN",
+        "CONFLUENCE_SPACE_KEY"
+    ]
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        future_to_secret = {executor.submit(get_secret_value, secret_name): secret_name for secret_name in secret_names}
+        
+        for future in concurrent.futures.as_completed(future_to_secret):
+            secret_name = future_to_secret[future]
+            try:
+                secrets[secret_name] = future.result()
+                logging.info(f"Successfully retrieved secret: {secret_name}")
+            except Exception as e:
+                logging.error(f"Failed to retrieve secret {secret_name}: {e}")
+                secrets[secret_name] = ""
+    
+    return secrets
+
+logging.info("Loading secrets in parallel...")
+start_time = time.time()
+secrets = load_secrets_parallel()
+end_time = time.time()
+logging.info(f"Secrets loaded in {end_time - start_time:.2f} seconds")
+
+SLACK_BOT_TOKEN = secrets["SLACK_BOT_TOKEN"]
+SLACK_APP_TOKEN = secrets["SLACK_APP_TOKEN"]  # Socket Mode用
+ANTHROPIC_API_KEY = secrets["ANTHROPIC_API_KEY"]
+GITHUB_ACCESS_TOKEN = secrets["GITHUB_ACCESS_TOKEN"]
 
 # Confluence設定（オプショナル）
-CONFLUENCE_URL = get_secret_value("CONFLUENCE_URL")
-CONFLUENCE_USERNAME = get_secret_value("CONFLUENCE_USERNAME")
-CONFLUENCE_API_TOKEN = get_secret_value("CONFLUENCE_API_TOKEN")
-CONFLUENCE_SPACE_KEY = get_secret_value("CONFLUENCE_SPACE_KEY") or "DEV"
+CONFLUENCE_URL = secrets["CONFLUENCE_URL"]
+CONFLUENCE_USERNAME = secrets["CONFLUENCE_USERNAME"]
+CONFLUENCE_API_TOKEN = secrets["CONFLUENCE_API_TOKEN"]
+CONFLUENCE_SPACE_KEY = secrets["CONFLUENCE_SPACE_KEY"] or "DEV"
 
 # 基本環境変数が設定されているかチェック
 if not all([SLACK_BOT_TOKEN, SLACK_APP_TOKEN, ANTHROPIC_API_KEY, GITHUB_ACCESS_TOKEN]):
