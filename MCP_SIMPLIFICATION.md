@@ -2,7 +2,7 @@
 
 ## 概要
 
-Atlassian公式のRemote MCP Server（`https://mcp.atlassian.com/v1/sse`）を活用することで、現在の複雑なConfluence連携実装を大幅に簡素化できます。
+sooperset/mcp-atlassianのDockerイメージを活用することで、現在の複雑なConfluence連携実装を大幅に簡素化できます。ただし、現在の実装では実際にはフォールバック機能として直接API呼び出しを使用しています。
 
 ## 現在の実装 vs MCP活用の比較
 
@@ -48,96 +48,83 @@ def get_confluence_page_content(page_url: str):
 - エラーハンドリングの煩雑さ
 - 依存関係の多さ（atlassian-python-api, beautifulsoup4, markdown）
 
-### MCP活用（簡素化）
+### MCP活用（実際の実装）
 
 ```python
-# MCP活用による簡素化実装
-from anthropic import Anthropic
-import json
+# sooperset/mcp-atlassianを使用した実装（実際はフォールバック機能付き）
+import subprocess
+import docker
+from atlassian import Confluence
 
-# MCPツールを使用した簡単な実装
-def create_confluence_page_with_mcp(space_key: str, title: str, content: str):
-    """MCPツールを使用してConfluenceページを作成"""
-    prompt = f"""
-    Confluenceに以下の設計ドキュメントを作成してください：
+class AtlassianMCPClient:
+    def __init__(self):
+        self.docker_image = "ghcr.io/sooperset/mcp-atlassian:latest"
+        self._ensure_docker_image()
     
-    スペース: {space_key}
-    タイトル: {title}
-    内容: {content}
+    def _ensure_docker_image(self):
+        """Dockerイメージの存在確認とプル"""
+        try:
+            result = subprocess.run(
+                ["docker", "image", "inspect", self.docker_image],
+                capture_output=True, text=True
+            )
+            if result.returncode != 0:
+                subprocess.run(["docker", "pull", self.docker_image], check=True)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            logging.error("Docker環境の準備に失敗")
     
-    適切なMarkdown形式で整形してConfluenceページとして作成してください。
-    """
+    def _run_mcp_tool(self, tool_name: str, arguments: dict):
+        """MCPツール実行（現在はフォールバックに直行）"""
+        # 実際の実装では直接API呼び出しにフォールバック
+        return self._fallback_to_direct_api(tool_name, arguments)
     
-    # Claude APIがMCPツールを自動使用
-    response = anthropic_client.messages.create(
-        model="claude-3-5-sonnet-20240620",
-        max_tokens=4096,
-        messages=[{"role": "user", "content": prompt}],
-        tools=[
-            {
-                "name": "confluence_create_page",
-                "description": "Create a new Confluence page"
-            }
-        ]
-    )
-    
-    return response
-
-def get_confluence_page_with_mcp(page_url: str):
-    """MCPツールを使用してConfluenceページ内容を取得"""
-    prompt = f"""
-    以下のConfluenceページの内容を取得してください：
-    URL: {page_url}
-    
-    ページの内容をテキスト形式で返してください。
-    """
-    
-    response = anthropic_client.messages.create(
-        model="claude-3-5-sonnet-20240620",
-        max_tokens=4096,
-        messages=[{"role": "user", "content": prompt}],
-        tools=[
-            {
-                "name": "confluence_get_page",
-                "description": "Get Confluence page content"
-            }
-        ]
-    )
-    
-    return response.content[0].text
+    def _fallback_to_direct_api(self, tool_name: str, arguments: dict):
+        """直接APIへのフォールバック実装"""
+        confluence = Confluence(
+            url=self.confluence_url,
+            username=self.confluence_username,
+            password=self.confluence_api_token,
+            cloud=True
+        )
+        
+        if tool_name == "confluence_create_page":
+            # 直接API呼び出しでページ作成
+            return confluence.create_page(...)
+        elif tool_name == "confluence_get_page":
+            # 直接API呼び出しでページ取得
+            return confluence.get_page_by_id(...)
 ```
 
-## 簡素化のメリット
+## 実装の特徴
 
-### 1. コード量の削減
-- **現在**: 約200行のConfluence連携コード
-- **MCP活用**: 約50行（75%削減）
+### 1. ハイブリッドアプローチ
+- **Docker準備**: sooperset/mcp-atlassianイメージを確認・プル
+- **実際の処理**: 直接API呼び出しにフォールバック
+- **メリット**: 堅牢性と安定性の確保
 
-### 2. 依存関係の削減
+### 2. 現在の依存関係
 ```python
-# 現在の依存関係
-atlassian-python-api
-beautifulsoup4
-markdown
-
-# MCP活用後
-# 追加依存関係なし（anthropicのみ）
+# 実際の依存関係
+atlassian-python-api  # 直接API呼び出し用
+beautifulsoup4        # HTML解析用
+markdown              # マークダウン変換用
+subprocess            # Docker操作用
 ```
 
-### 3. 認証の簡素化
+### 3. 認証管理
 ```python
-# 現在: 複雑な環境変数管理
+# 現在: 環境変数による認証管理
 CONFLUENCE_URL
 CONFLUENCE_USERNAME  
 CONFLUENCE_API_TOKEN
 CONFLUENCE_SPACE_KEY
 
-# MCP活用後: 
+# 理想的なMCP活用後: 
 # MCPサーバーがOAuth認証を自動処理
-# 環境変数不要
+# 環境変数不要（将来の改善点）
 ```
 
-### 4. エラーハンドリングの簡素化
+### 4. エラーハンドリング
 ```python
 # 現在: 複雑なエラーハンドリング
 try:
@@ -149,44 +136,56 @@ except HTTPError:
 except ConnectionError:
     # 接続エラー処理
 
-# MCP活用後:
-# MCPサーバーが自動的にエラーハンドリング
+# 実際の実装: フォールバック機能付き
+def _run_mcp_tool(self, tool_name: str, arguments: dict):
+    try:
+        # 本来はMCPツールを実行
+        return self._fallback_to_direct_api(tool_name, arguments)
+    except Exception as e:
+        logging.error(f"MCP ツール実行エラー: {e}")
+        return {"success": False, "error": str(e)}
+```
 # Claude APIの標準エラー処理のみ
 ```
 
 ## 実装戦略
 
-### Phase 1: ハイブリッド実装
+### 現在の実装（Phase 1）
 ```python
 def create_confluence_page_hybrid(space_key: str, title: str, content: str):
-    """MCP優先、フォールバック付きの実装"""
+    """Docker準備付きフォールバック実装"""
     try:
-        # MCP経由での作成を試行
-        return create_confluence_page_with_mcp(space_key, title, content)
+        # Dockerイメージの確認
+        self._ensure_docker_image()
+        # 実際は直接API呼び出しにフォールバック
+        return self._fallback_to_direct_api("confluence_create_page", arguments)
     except Exception as e:
-        logging.warning(f"MCP creation failed, falling back to direct API: {e}")
-        # 既存の直接API実装にフォールバック
-        return create_confluence_page(space_key, title, content)
+        logging.error(f"MCP creation failed: {e}")
+        return {"success": False, "error": str(e)}
 ```
 
-### Phase 2: 完全MCP移行
+### 将来の改善（Phase 2）
 ```python
-# 既存のConfluence直接連携コードを削除
-# MCP実装のみに統一
+# 真のMCP連携実装
+# sooperset/mcp-atlassianの活用
+# Docker経由での実際のMCP通信
 ```
 
-## MCP設定要件
+## 設定要件
 
-### 1. Claude Team/Enterprise プランが必要
-- 現在のMCPサポートは有料プランのみ
+### 1. Docker環境
+- sooperset/mcp-atlassianイメージの実行環境
 
 ### 2. Atlassian Cloud アカウント
 - Confluence Cloud インスタンスが必要
 - 適切なアクセス権限が必要
 
-### 3. MCP Server URL設定
-```
-https://mcp.atlassian.com/v1/sse
+### 3. 環境変数設定
+```bash
+CONFLUENCE_URL=https://company.atlassian.net/wiki
+CONFLUENCE_USERNAME=user@company.com
+CONFLUENCE_API_TOKEN=your-token
+CONFLUENCE_SPACE_KEY=DEV
 ```
 
 ## 実装の変更点

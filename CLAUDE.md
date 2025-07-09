@@ -14,8 +14,8 @@
 - **GitHub連携**: PyGithubライブラリを使用したリポジトリ操作（ファイル読み取り、ブランチ作成、PR作成）
 - **AI連携**: 自然言語指示に基づくコード生成のためのAnthropic Claude API
 - **Confluence連携**: 
-  - **MCP版**: Atlassian公式Remote MCP Server（`https://mcp.atlassian.com/v1/sse`）を使用した簡素化実装
-  - **Direct API版**: atlassian-python-api を使用した直接API呼び出しによるフォールバック実装
+  - **MCP版**: sooperset/mcp-atlassianのDockerイメージを使用した実装（フォールバック付き）
+  - **Direct API版**: atlassian-python-api を使用した直接API呼び出し
 - **非同期処理**: Slackの3秒タイムアウトをブロックしない長時間実行タスクの処理
 - **HTTPサーバー**: Slack webhookリクエストを受信するFlaskベースのHTTPサーバー
 
@@ -33,10 +33,10 @@
 - `handle_confluence_search_command()`: Confluence検索コマンドハンドラー
 
 ### atlassian_mcp_integration.py（MCP連携）
-- `AtlassianMCPClient`: Atlassian MCP Serverとの連携クライアント
-- `create_confluence_page_mcp()`: MCP経由でConfluenceページを作成
-- `get_confluence_page_mcp()`: MCP経由でConfluenceページ内容を取得
-- `search_confluence_pages_mcp()`: MCP経由でConfluenceページを検索
+- `AtlassianMCPClient`: sooperset/mcp-atlassianとの連携クライアント（フォールバック機能付き）
+- `create_confluence_page_mcp()`: MCP経由でConfluenceページを作成（直接API呼び出しにフォールバック）
+- `get_confluence_page_mcp()`: MCP経由でConfluenceページ内容を取得（直接API呼び出しにフォールバック）
+- `search_confluence_pages_mcp()`: MCP経由でConfluenceページを検索（直接API呼び出しにフォールバック）
 - `generate_design_document_mcp()`: MCP対応版設計ドキュメント生成
 
 ## 環境設定
@@ -114,7 +114,7 @@ Slackコマンド形式：`/design-mcp [プロジェクト名] の [機能名] �
 
 ボットは以下の処理を行います：
 1. Claude APIで詳細な設計ドキュメントを生成
-2. Atlassian MCP Server経由でConfluenceに設計ドキュメントページを作成
+2. sooperset/mcp-atlassian経由（実際は直接API呼び出し）でConfluenceに設計ドキュメントページを作成
 3. 設計書URLをSlackで応答
 
 ### 新機能：設計ベース開発
@@ -130,7 +130,7 @@ Slackコマンド形式：`/develop-from-design-mcp [confluence-url] の [ファ
 例：`/develop-from-design-mcp https://company.atlassian.net/wiki/spaces/DEV/pages/123456/User-Auth の auth.py に実装`
 
 ボットは以下の処理を行います：
-1. Atlassian MCP Server経由でConfluenceのURLから設計ドキュメントを取得
+1. sooperset/mcp-atlassian経由（実際は直接API呼び出し）でConfluenceのURLから設計ドキュメントを取得
 2. 設計内容に基づいてClaude APIでコードを生成
 3. 生成されたコードをSlackで応答（将来：GitHubへの自動PR作成）
 
@@ -141,7 +141,7 @@ Slackコマンド形式：`/confluence-search [検索クエリ] [in:スペース
 例：`/confluence-search ユーザー認証 in:DEV`
 
 ボットは以下の処理を行います：
-1. Atlassian MCP Server経由でConfluenceページを検索
+1. sooperset/mcp-atlassian経由（実際は直接API呼び出し）でConfluenceページを検索
 2. 検索結果をSlackで応答
 
 ## トラブルシューティング
@@ -169,23 +169,24 @@ Slackアプリには以下が必要です：
 ## MCP（Model Context Protocol）について
 
 ### 概要
-このボットは、Atlassian公式のRemote MCP Server（`https://mcp.atlassian.com/v1/sse`）を使用して、より簡素化されたConfluence連携を実現しています。
+このボットは、sooperset/mcp-atlassianのDockerイメージを使用してConfluence連携を実現しています。ただし、実際の実装では直接API呼び出しをフォールバック機能として使用しています。
 
-### MCP使用の利点
-- **コード複雑性の削減**: 従来比75%のコード削減
-- **依存関係の簡素化**: 3つの外部ライブラリが不要
-- **認証の自動化**: OAuth認証がMCPサーバーで自動処理
-- **エラーハンドリングの簡素化**: 標準的なAnthropic APIエラー処理のみ
+### MCP実装の特徴
+- **Docker基盤**: sooperset/mcp-atlassianのDockerイメージを使用
+- **フォールバック機能**: 現在の実装では直接API呼び出しにフォールバック
+- **依存関係**: atlassian-python-api、beautifulsoup4、markdownライブラリを使用
+- **認証**: 環境変数による認証情報の管理
 
 ### 前提条件
-- Claude Team/Enterprise プラン（MCPサポート）
+- Docker環境（sooperset/mcp-atlassianイメージ用）
 - Atlassian Cloud アカウント
 - Confluence Cloud インスタンス
+- 適切な環境変数設定
 
-### ハイブリッド実装
-現在の実装では、MCP優先でフォールバック機能を提供します：
-1. MCPを使用した処理を試行
-2. 失敗した場合、従来の直接API呼び出しにフォールバック
+### 実装の詳細
+現在の実装では以下の動作を行います：
+1. sooperset/mcp-atlassianのDockerイメージを確認・プル
+2. 実際の処理は直接API呼び出し（`_fallback_to_direct_api`）で実行
 3. エラーハンドリングと結果の統一
 
 詳細は `MCP_SIMPLIFICATION.md` を参照してください。

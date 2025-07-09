@@ -9,7 +9,7 @@ Anthropic社のClaude APIを使用して、自動的にコード変更を生成�
 - 🔗 **GitHub連携**: ブランチ、コミット、プルリクエストを自動作成
 - 📋 **設計ドキュメント作成**: 要件からConfluenceに詳細設計書を自動生成
 - 🏗️ **設計ベース開発**: Confluenceの設計書からコードを生成
-- 🎯 **MCP統合**: Atlassian公式Remote MCP Serverを使用した簡素化されたConfluence連携
+- 🎯 **MCP統合**: sooperset/mcp-atlassianのDockerイメージを使用したConfluence連携（フォールバック機能付き）
 - ⚡ **非同期処理**: Slackレスポンスをブロックしない長時間実行タスクの処理
 - 🛡️ **セキュリティ**: リクエスト署名検証と適切なOAuthスコープ
 
@@ -22,6 +22,7 @@ Anthropic社のClaude APIを使用して、自動的にコード変更を生成�
 - リポジトリアクセス権限のあるGitHubアカウント
 - Anthropic APIキー
 - Confluenceアカウント（設計機能を使用する場合）
+- Docker環境（MCP機能を使用する場合）
 
 ### 2. インストール
 
@@ -156,22 +157,24 @@ Confluenceページを検索：
 6. **通知**: SlackでPR URLを応答
 
 ### 設計ドキュメント作成フロー
-1. **要件受信**: Slackで`/design`コマンドを受信
+1. **要件受信**: Slackで`/design`または`/design-mcp`コマンドを受信
 2. **設計生成**: Claude APIで詳細な設計ドキュメントを生成
-3. **Confluence作成**: 設計書をConfluenceページとして作成
+3. **Confluence作成**: 設計書をConfluenceページとして作成（MCP版では直接API呼び出しにフォールバック）
 4. **通知**: Slackで設計書URLを応答
 
 ### 設計ベース開発フロー
-1. **設計取得**: Confluenceから設計ドキュメントを取得
+1. **設計取得**: Confluenceから設計ドキュメントを取得（MCP版では直接API呼び出しにフォールバック）
 2. **コード生成**: 設計内容に基づいてClaude APIでコードを生成
 3. **コード提供**: 生成されたコードをSlackで応答
 
 ## アーキテクチャ
 
 - **aibot.py**: メインアプリケーションファイル
+- **atlassian_mcp_integration.py**: MCP連携モジュール（フォールバック機能付き）
 - **Flaskサーバー**: SlackからのHTTPリクエストを処理
 - **スレッド処理**: 長時間実行タスクの非同期処理
 - **エラーハンドリング**: 包括的なログ記録とエラー回復
+- **sooperset/mcp-atlassian**: Confluence連携用Dockerイメージ
 
 ## 依存関係
 
