@@ -4,12 +4,31 @@ import logging
 import requests
 import re
 import markdown
+import asyncio
 from slack_bolt import App
 from anthropic import Anthropic, AnthropicError
 from github import Github, GithubException
 from atlassian import Confluence
 from bs4 import BeautifulSoup
 from google.cloud import secretmanager
+
+# 共通の非同期実行関数
+def run_async_safely(coro):
+    """非同期コルーチンを安全に実行する関数"""
+    def run_in_thread():
+        try:
+            # 新しいイベントループを作成
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(coro)
+            finally:
+                loop.close()
+        except Exception as e:
+            logger.error(f"非同期タスク実行エラー: {e}")
+    
+    thread = threading.Thread(target=run_in_thread, daemon=True)
+    thread.start()
 
 # Atlassian MCP Client のインポート
 try:
@@ -739,15 +758,7 @@ def handle_design_command_mcp(ack, body, say):
     ack(f"🤖 MCP設計依頼を受け付けました: `{body['text']}`\nAtlassian MCP経由で設計ドキュメントの生成を開始します...")
     
     # バックグラウンドでタスクを実行
-    def run_async_task():
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(process_design_task_mcp(body, body['response_url']))
-        finally:
-            loop.close()
-    thread = threading.Thread(target=run_async_task)
-    thread.start()
+    run_async_safely(process_design_task_mcp(body, body['response_url']))
 
 @app.command("/develop-from-design-mcp")
 def handle_develop_from_design_command_mcp(ack, body, say):
@@ -756,15 +767,7 @@ def handle_develop_from_design_command_mcp(ack, body, say):
     ack(f"🤖 MCP設計ベース開発依頼を受け付けました: `{body['text']}`\nAtlassian MCP経由で設計ドキュメントの解析を開始します...")
     
     # バックグラウンドでタスクを実行
-    def run_async_task():
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(process_design_based_development_task_mcp(body, body['response_url']))
-        finally:
-            loop.close()
-    thread = threading.Thread(target=run_async_task)
-    thread.start()
+    run_async_safely(process_design_based_development_task_mcp(body, body['response_url']))
 
 @app.command("/confluence-search")
 def handle_confluence_search_command(ack, body, say):
@@ -807,22 +810,6 @@ def handle_confluence_search_command(ack, body, say):
             requests.post(body['response_url'], json={"text": f"検索中にエラーが発生しました: {e}"})
     
     # バックグラウンドでタスクを実行
-    def run_async_task():
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(process_search())
-        finally:
-            loop.close()
-    thread = threading.Thread(target=run_async_task)
-    thread.start()
+    run_async_safely(process_search())
 
-if __name__ == "__main__":
-    logging.info("🤖 Slack AI開発ボットを起動します (Socket Mode)...")
-    
-    # Socket Mode Handler の初期化
-    from slack_bolt.adapter.socket_mode import SocketModeHandler
-    
-    # Socket Mode で起動
-    socket_mode_handler = SocketModeHandler(app, SLACK_APP_TOKEN)
-    socket_mode_handler.start()
+# Socket Mode の初期化は main.py で行います（Cloud Run用）
