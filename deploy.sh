@@ -4,7 +4,18 @@
 # 設定
 SERVICE_NAME="slack-ai-bot"
 REGION="asia-northeast1"
-PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-your-project-id}"
+# プロジェクトIDを動的に取得
+if [ -z "$GOOGLE_CLOUD_PROJECT" ]; then
+    PROJECT_ID=$(gcloud config get-value project 2>/dev/null)
+    if [ -z "$PROJECT_ID" ]; then
+        echo "❌ プロジェクトIDが設定されていません。以下のいずれかを実行してください："
+        echo "  1. export GOOGLE_CLOUD_PROJECT=your-project-id"
+        echo "  2. gcloud config set project your-project-id"
+        exit 1
+    fi
+else
+    PROJECT_ID="$GOOGLE_CLOUD_PROJECT"
+fi
 IMAGE_NAME="asia-northeast1-docker.pkg.dev/${PROJECT_ID}/slack-ai-bot/${SERVICE_NAME}"
 TIMEOUT="540s"
 MEMORY="1Gi"

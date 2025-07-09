@@ -1,0 +1,162 @@
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+    types: [ closed ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+        - production
+        - staging
+        - development
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    # 本番環境はmainブランチのみ、PRはstagingとして扱う
+    environment: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'production' || 'staging' }}
+    
+    env:
+      SERVICE_NAME: slack-ai-bot
+      REGION: asia-northeast1
+      ENVIRONMENT: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'production' || 'staging' }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+        service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+    
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+    
+    - name: Get Project ID from gcloud
+      id: project
+      run: |
+        PROJECT_ID=$(gcloud config get-value project)
+        echo "PROJECT_ID=$PROJECT_ID" >> $GITHUB_OUTPUT
+        echo "Detected Project ID: $PROJECT_ID"
+    
+    - name: Configure Docker
+      run: gcloud auth configure-docker asia-northeast1-docker.pkg.dev
+    
+    - name: Determine service name
+      id: service_name
+      run: |
+        if [ "${{ env.ENVIRONMENT }}" = "production" ]; then
+          echo "FULL_SERVICE_NAME=${{ env.SERVICE_NAME }}" >> $GITHUB_OUTPUT
+        else
+          echo "FULL_SERVICE_NAME=${{ env.SERVICE_NAME }}-${{ env.ENVIRONMENT }}" >> $GITHUB_OUTPUT
+        fi
+    
+    - name: Build Docker image
+      env:
+        PROJECT_ID: ${{ steps.project.outputs.PROJECT_ID }}
+        FULL_SERVICE_NAME: ${{ steps.service_name.outputs.FULL_SERVICE_NAME }}
+      run: |
+        IMAGE_TAG=asia-northeast1-docker.pkg.dev/${PROJECT_ID}/slack-ai-bot/${FULL_SERVICE_NAME}:${{ github.sha }}
+        echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
+        
+        echo "🐳 Building Docker image: $IMAGE_TAG"
+        gcloud builds submit --tag=$IMAGE_TAG .
+    
+    - name: Deploy to Cloud Run
+      env:
+        PROJECT_ID: ${{ steps.project.outputs.PROJECT_ID }}
+        FULL_SERVICE_NAME: ${{ steps.service_name.outputs.FULL_SERVICE_NAME }}
+      run: |
+        # Set environment-specific configurations
+        case "${{ env.ENVIRONMENT }}" in
+          "production")
+            MIN_INSTANCES=1
+            MAX_INSTANCES=10
+            LOG_LEVEL=INFO
+            ;;
+          "staging")
+            MIN_INSTANCES=0
+            MAX_INSTANCES=3
+            LOG_LEVEL=DEBUG
+            ;;
+          "development")
+            MIN_INSTANCES=0
+            MAX_INSTANCES=1
+            LOG_LEVEL=DEBUG
+            ;;
+        esac
+        
+        echo "🚀 Deploying to Cloud Run: $FULL_SERVICE_NAME"
+        echo "   Environment: ${{ env.ENVIRONMENT }}"
+        echo "   Min instances: $MIN_INSTANCES"
+        echo "   Max instances: $MAX_INSTANCES"
+        
+        gcloud run deploy $FULL_SERVICE_NAME \
+          --image=$IMAGE_TAG \
+          --region=$REGION \
+          --platform=managed \
+          --allow-unauthenticated \
+          --timeout=540s \
+          --memory=1Gi \
+          --max-instances=$MAX_INSTANCES \
+          --min-instances=$MIN_INSTANCES \
+          --port=8080 \
+          --set-env-vars="CONFLUENCE_SPACE_KEY=DEV,LOG_LEVEL=$LOG_LEVEL,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,ENVIRONMENT=${{ env.ENVIRONMENT }}" \
+          --update-secrets="SLACK_BOT_TOKEN=SLACK_BOT_TOKEN:latest,SLACK_APP_TOKEN=SLACK_APP_TOKEN:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,GITHUB_ACCESS_TOKEN=GITHUB_ACCESS_TOKEN:latest,CONFLUENCE_URL=CONFLUENCE_URL:latest,CONFLUENCE_USERNAME=CONFLUENCE_USERNAME:latest,CONFLUENCE_API_TOKEN=CONFLUENCE_API_TOKEN:latest"
+    
+    - name: Get service URL
+      id: get_url
+      env:
+        PROJECT_ID: ${{ steps.project.outputs.PROJECT_ID }}
+        FULL_SERVICE_NAME: ${{ steps.service_name.outputs.FULL_SERVICE_NAME }}
+      run: |
+        SERVICE_URL=$(gcloud run services describe $FULL_SERVICE_NAME --region=$REGION --format="value(status.url)")
+        echo "SERVICE_URL=$SERVICE_URL" >> $GITHUB_OUTPUT
+        echo "🌐 Service URL: $SERVICE_URL"
+    
+    - name: Health check
+      env:
+        SERVICE_URL: ${{ steps.get_url.outputs.SERVICE_URL }}
+      run: |
+        echo "🏥 Performing health check..."
+        
+        # Wait for service to be ready
+        sleep 30
+        
+        # Health check with retry
+        for i in {1..5}; do
+          if curl -f -s "$SERVICE_URL/health" > /dev/null; then
+            echo "✅ Health check passed"
+            break
+          else
+            echo "⏳ Health check attempt $i/5 failed, retrying..."
+            sleep 10
+          fi
+        done
+    
+    - name: Post deployment summary
+      env:
+        SERVICE_URL: ${{ steps.get_url.outputs.SERVICE_URL }}
+        FULL_SERVICE_NAME: ${{ steps.service_name.outputs.FULL_SERVICE_NAME }}
+      run: |
+        echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+        echo "| Item | Value |" >> $GITHUB_STEP_SUMMARY
+        echo "|------|-------|" >> $GITHUB_STEP_SUMMARY
+        echo "| Environment | ${{ env.ENVIRONMENT }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Service Name | $FULL_SERVICE_NAME |" >> $GITHUB_STEP_SUMMARY
+        echo "| Region | $REGION |" >> $GITHUB_STEP_SUMMARY
+        echo "| Project ID | ${{ steps.project.outputs.PROJECT_ID }} |" >> $GITHUB_STEP_SUMMARY
+        echo "| Service URL | [$SERVICE_URL]($SERVICE_URL) |" >> $GITHUB_STEP_SUMMARY
+        echo "| Health Check | [$SERVICE_URL/health]($SERVICE_URL/health) |" >> $GITHUB_STEP_SUMMARY
+        echo "| Image Tag | $IMAGE_TAG |" >> $GITHUB_STEP_SUMMARY
