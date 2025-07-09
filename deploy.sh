@@ -1,29 +1,31 @@
 #!/bin/bash
-# Google Cloud Functions デプロイスクリプト
+# Google Cloud Run デプロイスクリプト
 
 # 設定
-FUNCTION_NAME="slack-ai-bot"
+SERVICE_NAME="slack-ai-bot"
 REGION="asia-northeast1"
 PROJECT_ID="${GOOGLE_CLOUD_PROJECT:-your-project-id}"
-RUNTIME="python313"
+IMAGE_NAME="gcr.io/${PROJECT_ID}/${SERVICE_NAME}"
 TIMEOUT="540s"
 MEMORY="1Gi"
 MAX_INSTANCES="10"
 MIN_INSTANCES="0"
 
-echo "🚀 Google Cloud Functions デプロイを開始します..."
-echo "Function Name: ${FUNCTION_NAME}"
+echo "🚀 Google Cloud Run デプロイを開始します..."
+echo "Service Name: ${SERVICE_NAME}"
 echo "Region: ${REGION}"
 echo "Project ID: ${PROJECT_ID}"
+echo "Image: ${IMAGE_NAME}"
 
 # 必要な権限を確認
 echo "📋 必要な権限を確認中..."
 gcloud auth list --filter=status:ACTIVE --format="value(account)"
 
-# Cloud Functions API を有効化
-echo "🔧 Cloud Functions API を有効化中..."
-gcloud services enable cloudfunctions.googleapis.com --project=${PROJECT_ID}
+# Cloud Run API を有効化
+echo "🔧 Cloud Run API を有効化中..."
+gcloud services enable run.googleapis.com --project=${PROJECT_ID}
 gcloud services enable cloudbuild.googleapis.com --project=${PROJECT_ID}
+gcloud services enable containerregistry.googleapis.com --project=${PROJECT_ID}
 
 # Secret Manager にシークレットが存在するか確認
 echo "🔐 Secret Manager のシークレットを確認中..."
@@ -58,38 +60,45 @@ for secret in "${optional_secrets[@]}"; do
     fi
 done
 
-# Cloud Functions をデプロイ
-echo "🚀 Cloud Functions をデプロイ中..."
-gcloud functions deploy ${FUNCTION_NAME} \
-    --gen2 \
-    --source=. \
-    --entry-point=slack_bot \
-    --runtime=${RUNTIME} \
-    --trigger=http \
+# Docker イメージをビルド
+echo "🐳 Docker イメージをビルド中..."
+gcloud builds submit --tag=${IMAGE_NAME} --project=${PROJECT_ID} .
+
+if [ $? -ne 0 ]; then
+    echo "❌ Docker ビルドに失敗しました"
+    exit 1
+fi
+
+# Cloud Run サービスをデプロイ
+echo "🚀 Cloud Run サービスをデプロイ中..."
+gcloud run deploy ${SERVICE_NAME} \
+    --image=${IMAGE_NAME} \
+    --region=${REGION} \
+    --project=${PROJECT_ID} \
+    --platform=managed \
     --allow-unauthenticated \
     --timeout=${TIMEOUT} \
     --memory=${MEMORY} \
     --max-instances=${MAX_INSTANCES} \
     --min-instances=${MIN_INSTANCES} \
-    --region=${REGION} \
-    --project=${PROJECT_ID} \
+    --port=8080 \
     --set-env-vars="CONFLUENCE_SPACE_KEY=DEV,LOG_LEVEL=INFO,GOOGLE_CLOUD_PROJECT=${PROJECT_ID}" \
-    --set-secrets="SLACK_BOT_TOKEN=SLACK_BOT_TOKEN:latest,SLACK_SIGNING_SECRET=SLACK_SIGNING_SECRET:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,GITHUB_ACCESS_TOKEN=GITHUB_ACCESS_TOKEN:latest,CONFLUENCE_URL=CONFLUENCE_URL:latest,CONFLUENCE_USERNAME=CONFLUENCE_USERNAME:latest,CONFLUENCE_API_TOKEN=CONFLUENCE_API_TOKEN:latest" \
+    --update-secrets="SLACK_BOT_TOKEN=SLACK_BOT_TOKEN:latest,SLACK_SIGNING_SECRET=SLACK_SIGNING_SECRET:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,GITHUB_ACCESS_TOKEN=GITHUB_ACCESS_TOKEN:latest,CONFLUENCE_URL=CONFLUENCE_URL:latest,CONFLUENCE_USERNAME=CONFLUENCE_USERNAME:latest,CONFLUENCE_API_TOKEN=CONFLUENCE_API_TOKEN:latest" \
     --verbosity=info
 
 if [ $? -eq 0 ]; then
     echo "✅ デプロイが完了しました！"
     
-    # 関数の URL を取得
-    FUNCTION_URL=$(gcloud functions describe ${FUNCTION_NAME} --gen2 --region=${REGION} --project=${PROJECT_ID} --format="value(serviceConfig.uri)")
+    # サービスの URL を取得
+    SERVICE_URL=$(gcloud run services describe ${SERVICE_NAME} --region=${REGION} --project=${PROJECT_ID} --format="value(status.url)")
     
-    echo "🌐 Function URL: ${FUNCTION_URL}"
+    echo "🌐 Service URL: ${SERVICE_URL}"
     echo "📝 Slack アプリの設定で以下のURLを Webhook URL に設定してください:"
-    echo "   ${FUNCTION_URL}"
+    echo "   ${SERVICE_URL}/slack/commands"
     
     # ヘルスチェック
     echo "🏥 ヘルスチェックを実行中..."
-    curl -s "${FUNCTION_URL}/health" || echo "ヘルスチェックに失敗しました"
+    curl -s "${SERVICE_URL}/health" || echo "ヘルスチェックに失敗しました"
     
 else
     echo "❌ デプロイに失敗しました"
