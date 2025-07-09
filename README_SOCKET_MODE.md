@@ -79,10 +79,10 @@ Socket Modeでは Event Subscriptions も自動処理されます。
 
 ```bash
 # Secret を作成
-gcloud secrets create SLACK_APP_TOKEN --project=ai-developer-465404
+gcloud secrets create SLACK_APP_TOKEN
 
 # App-Level Token を設定（xapp- で始まるトークン）
-echo "xapp-1-A1234567890-1234567890123-abcdef..." | gcloud secrets versions add SLACK_APP_TOKEN --data-file=- --project=ai-developer-465404
+echo "xapp-1-A1234567890-1234567890123-abcdef..." | gcloud secrets versions add SLACK_APP_TOKEN --data-file=-
 ```
 
 ### 既存のシークレット
@@ -191,10 +191,10 @@ Socket Mode で接続を開始します...
 
 ```bash
 # Secret Manager の確認
-gcloud secrets list --project=ai-developer-465404
+gcloud secrets list
 
 # 特定のシークレットの確認
-gcloud secrets versions access latest --secret="SLACK_APP_TOKEN" --project=ai-developer-465404
+gcloud secrets versions access latest --secret="SLACK_APP_TOKEN"
 
 # Cloud Run サービスの環境変数確認
 gcloud run services describe slack-ai-bot --region=asia-northeast1 --format="value(spec.template.spec.containers[0].env[].name)"

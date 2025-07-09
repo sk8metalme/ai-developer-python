@@ -5,33 +5,37 @@
 ### 1. WIF_PROVIDER
 ```
 Name: WIF_PROVIDER
-Value: projects/224087487695/locations/global/workloadIdentityPools/github-actions-pool/providers/github-actions-provider
+Value: setup-github-actions-workload-identity.sh の実行結果で出力される値
 ```
 
 ### 2. WIF_SERVICE_ACCOUNT
 ```
 Name: WIF_SERVICE_ACCOUNT
-Value: github-actions-deploy@ai-developer-465404.iam.gserviceaccount.com
+Value: setup-github-actions-workload-identity.sh の実行結果で出力される値
 ```
 
 ## 📋 設定手順
 
-### ステップ1: リポジトリ設定へアクセス
-1. https://github.com/sk8metalme/ai-developer-python を開く
+### ステップ1: Setup スクリプトを実行
+1. `setup-github-actions-workload-identity.sh` を実行
+2. 実行結果の「GitHub Secrets」セクションから値を取得
+
+### ステップ2: リポジトリ設定へアクセス
+1. GitHubリポジトリを開く
 2. `Settings` タブをクリック
 3. 左サイドバーの `Secrets and variables` をクリック
 4. `Actions` を選択
 
-### ステップ2: 最初のSecretを追加
+### ステップ3: 最初のSecretを追加
 1. `New repository secret` ボタンをクリック
 2. Name: `WIF_PROVIDER`
-3. Value: `projects/224087487695/locations/global/workloadIdentityPools/github-actions-pool/providers/github-actions-provider`
+3. Value: setup スクリプトで出力された `WIF_PROVIDER` の値をコピー&ペースト
 4. `Add secret` をクリック
 
-### ステップ3: 2つ目のSecretを追加
+### ステップ4: 2つ目のSecretを追加
 1. 再度 `New repository secret` ボタンをクリック
 2. Name: `WIF_SERVICE_ACCOUNT`
-3. Value: `github-actions-deploy@ai-developer-465404.iam.gserviceaccount.com`
+3. Value: setup スクリプトで出力された `WIF_SERVICE_ACCOUNT` の値をコピー&ペースト
 4. `Add secret` をクリック
 
 ## ✅ 設定完了の確認
