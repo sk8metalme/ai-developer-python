@@ -266,7 +266,7 @@ class AtlassianMCPClient:
                 "error": str(e)
             }
         
-    async def create_confluence_page_with_mcp(self, space_key: str, title: str, content: str, parent_id: str = None) -> dict:
+    async def create_confluence_page_with_mcp(self, space_key: str, title: str, content: str, parent_id: Optional[str] = None) -> dict:
         """
         sooperset/mcp-atlassian を使用してConfluenceページを作成
         
@@ -402,7 +402,7 @@ class AtlassianMCPClient:
         
         return ""
     
-    async def search_confluence_pages_with_mcp(self, query: str, space_key: str = None) -> dict:
+    async def search_confluence_pages_with_mcp(self, query: str, space_key: Optional[str] = None) -> dict:
         """
         sooperset/mcp-atlassian を使用してConfluenceページを検索
         
@@ -636,7 +636,7 @@ class AtlassianMCPClient:
 atlassian_mcp_client = AtlassianMCPClient()
 
 # 外部から使用する関数
-async def create_confluence_page_mcp(space_key: str, title: str, content: str, parent_id: str = None):
+async def create_confluence_page_mcp(space_key: str, title: str, content: str, parent_id: Optional[str] = None):
     """MCP経由でConfluenceページを作成"""
     return await atlassian_mcp_client.create_confluence_page_with_mcp(space_key, title, content, parent_id)
 
@@ -644,7 +644,7 @@ async def get_confluence_page_mcp(page_url: str):
     """MCP経由でConfluenceページ内容を取得"""
     return await atlassian_mcp_client.get_confluence_page_with_mcp(page_url)
 
-async def search_confluence_pages_mcp(query: str, space_key: str = None):
+async def search_confluence_pages_mcp(query: str, space_key: Optional[str] = None):
     """MCP経由でConfluenceページを検索"""
     return await atlassian_mcp_client.search_confluence_pages_with_mcp(query, space_key)
 

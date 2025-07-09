@@ -5,6 +5,7 @@ import requests
 import re
 import markdown
 import asyncio
+from typing import Optional, Union
 from slack_bolt import App
 from anthropic import Anthropic, AnthropicError
 from github import Github, GithubException
@@ -25,7 +26,7 @@ def run_async_safely(coro):
             finally:
                 loop.close()
         except Exception as e:
-            logger.error(f"非同期タスク実行エラー: {e}")
+            logging.error(f"非同期タスク実行エラー: {e}")
     
     thread = threading.Thread(target=run_in_thread, daemon=True)
     thread.start()
@@ -56,7 +57,7 @@ logging.getLogger("httpx").setLevel(logging.DEBUG)
 CLAUDE_ICON_URL = "https://claude.ai/favicon.ico"
 
 # --- Secret Manager クライアント ---
-def get_secret_value(secret_name: str, project_id: str = None) -> str:
+def get_secret_value(secret_name: str, project_id: Optional[str] = None) -> str:
     """Google Cloud Secret Managerからシークレット値を取得する"""
     try:
         if project_id is None:
@@ -158,18 +159,21 @@ if CONFLUENCE_ENABLED:
         logging.error(f"Confluenceクライアントの初期化に失敗しました: {e}")
         CONFLUENCE_ENABLED = False
 
-def get_repo_content(repo_name: str, file_path: str, branch: str = "main") -> str | None:
+def get_repo_content(repo_name: str, file_path: str, branch: str = "main") -> Optional[str]:
     """GitHubリポジトリからファイルの内容を取得する"""
     try:
         logging.info(f"GitHubリポジトリにアクセス中: {repo_name}, ファイル: {file_path}")
         repo = github_client.get_repo(repo_name)
         content_file = repo.get_contents(file_path, ref=branch)
+        # Handle both single file and list of files
+        if isinstance(content_file, list):
+            content_file = content_file[0]
         return content_file.decoded_content.decode("utf-8")
     except GithubException as e:
         logging.error(f"GitHubからのファイル取得エラー (repo: {repo_name}, file: {file_path}): {e}")
         return None
 
-def create_github_pr(repo_name: str, new_branch_name: str, file_path: str, new_content: str, commit_message: str, pr_title: str) -> str | None:
+def create_github_pr(repo_name: str, new_branch_name: str, file_path: str, new_content: str, commit_message: str, pr_title: str) -> Optional[str]:
     """GitHubに新しいブランチを作成し、ファイルを更新してPRを作成する"""
     try:
         repo = github_client.get_repo(repo_name)
@@ -181,6 +185,9 @@ def create_github_pr(repo_name: str, new_branch_name: str, file_path: str, new_c
         # ファイルを更新 (または新規作成)
         try:
             contents = repo.get_contents(file_path, ref=new_branch_name)
+            # Handle both single file and list of files
+            if isinstance(contents, list):
+                contents = contents[0]
             repo.update_file(contents.path, commit_message, new_content, contents.sha, branch=new_branch_name)
         except GithubException as e:
             if e.status == 404: # ファイルが存在しない場合
@@ -200,7 +207,7 @@ def create_github_pr(repo_name: str, new_branch_name: str, file_path: str, new_c
         logging.error(f"GitHubでのPR作成エラー: {e}")
         return None
 
-def create_confluence_page(space_key: str, title: str, content: str, parent_id: str = None) -> str | None:
+def create_confluence_page(space_key: str, title: str, content: str, parent_id: Optional[str] = None) -> Optional[str]:
     """Confluenceページを作成する"""
     if not CONFLUENCE_ENABLED or not confluence_client:
         logging.error("Confluenceが有効になっていません")

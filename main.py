@@ -33,16 +33,16 @@ def root():
 def run_health_server():
     """ヘルスチェック用サーバーを起動"""
     port = int(os.environ.get("PORT", 8080))
-    logger.info(f"Starting health check server on port {port}")
+    logging.info(f"Starting health check server on port {port}")
     health_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False, threaded=True)
 
 def signal_handler(sig, frame):
     """シグナルハンドラー"""
-    logger.info('Socket Mode を終了します...')
+    logging.info('Socket Mode を終了します...')
     sys.exit(0)
 
 if __name__ == "__main__":
-    logger.info("🤖 Slack AI開発ボット (Socket Mode + Health Check) を起動します...")
+    logging.info("🤖 Slack AI開発ボット (Socket Mode + Health Check) を起動します...")
     
     # シグナルハンドラーの設定
     signal.signal(signal.SIGINT, signal_handler)
@@ -57,20 +57,20 @@ if __name__ == "__main__":
         import time
         time.sleep(3)  # ヘルスチェックサーバーの起動を待つ
         try:
-            logger.info("Socket Mode の初期化を開始します...")
+            logging.info("Socket Mode の初期化を開始します...")
             from slack_bolt.adapter.socket_mode import SocketModeHandler
             from aibot import app, SLACK_APP_TOKEN
             
-            logger.info(f"Socket Mode App Token: {SLACK_APP_TOKEN[:10]}..." if SLACK_APP_TOKEN else "SLACK_APP_TOKEN not found")
+            logging.info(f"Socket Mode App Token: {SLACK_APP_TOKEN[:10]}..." if SLACK_APP_TOKEN else "SLACK_APP_TOKEN not found")
             socket_mode_handler = SocketModeHandler(app, SLACK_APP_TOKEN)
-            logger.info("Socket Mode で接続を開始します...")
+            logging.info("Socket Mode で接続を開始します...")
             
             # Socket Mode を開始（ブロッキング）
             socket_mode_handler.start()
             
         except Exception as e:
-            logger.error(f"Socket Mode 初期化エラー: {e}")
-            logger.info("ヘルスチェックサーバーのみ継続して動作します...")
+            logging.error(f"Socket Mode 初期化エラー: {e}")
+            logging.info("ヘルスチェックサーバーのみ継続して動作します...")
     
     # Socket Mode を別スレッドで遅延実行
     socket_thread = threading.Thread(target=delayed_socket_mode_init, daemon=False)
@@ -82,5 +82,5 @@ if __name__ == "__main__":
         while True:
             time.sleep(10)
     except KeyboardInterrupt:
-        logger.info("アプリケーションを終了します...")
+        logging.info("アプリケーションを終了します...")
         sys.exit(0)
