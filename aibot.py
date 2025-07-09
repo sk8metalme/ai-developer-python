@@ -127,8 +127,8 @@ CONFLUENCE_USERNAME = secrets["CONFLUENCE_USERNAME"]
 CONFLUENCE_API_TOKEN = secrets["CONFLUENCE_API_TOKEN"]
 CONFLUENCE_SPACE_KEY = secrets["CONFLUENCE_SPACE_KEY"] or "DEV"
 
-# 基本環境変数が設定されているかチェック
-if not all([SLACK_BOT_TOKEN, SLACK_APP_TOKEN, ANTHROPIC_API_KEY, GITHUB_ACCESS_TOKEN]):
+# 基本環境変数が設定されているかチェック（ビルド時のテストではスキップ）
+if not os.environ.get("GITHUB_ACTIONS") and not all([SLACK_BOT_TOKEN, SLACK_APP_TOKEN, ANTHROPIC_API_KEY, GITHUB_ACCESS_TOKEN]):
     raise ValueError("必要な環境変数がすべて設定されていません。SLACK_BOT_TOKEN, SLACK_APP_TOKEN, ANTHROPIC_API_KEY, GITHUB_ACCESS_TOKEN を確認してください。")
 
 # Confluence設定のチェック
