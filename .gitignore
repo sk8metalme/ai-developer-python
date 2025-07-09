@@ -208,3 +208,24 @@ __marimo__/
 
 # env
 setup-env.sh
+
+# Secrets and configuration files
+*.env.local
+*.env.production
+*.env.staging
+.env.*
+config.py
+secrets.py
+*secret*
+*token*
+*key*
+*.credentials
+*.config
+auth.json
+credentials.json
+config.json
+*_config.py
+*_secrets.py
+*_credentials.py
+test_mcp_direct.py
+test_mcp_protocol.py

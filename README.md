@@ -5,8 +5,11 @@ Anthropic社のClaude APIを使用して、自動的にコード変更を生成�
 ## 機能
 
 - 🤖 **AI駆動コード生成**: 自然言語指示に基づいてClaude APIでコードを生成
-- 📱 **Slack連携**: Slackの`/develop`スラッシュコマンドに応答
+- 📱 **Slack連携**: 複数のスラッシュコマンドに対応（`/develop`, `/design`, `/design-mcp`, `/develop-from-design`, `/develop-from-design-mcp`, `/confluence-search`）
 - 🔗 **GitHub連携**: ブランチ、コミット、プルリクエストを自動作成
+- 📋 **設計ドキュメント作成**: 要件からConfluenceに詳細設計書を自動生成
+- 🏗️ **設計ベース開発**: Confluenceの設計書からコードを生成
+- 🎯 **MCP統合**: Atlassian公式Remote MCP Serverを使用した簡素化されたConfluence連携
 - ⚡ **非同期処理**: Slackレスポンスをブロックしない長時間実行タスクの処理
 - 🛡️ **セキュリティ**: リクエスト署名検証と適切なOAuthスコープ
 
@@ -18,6 +21,7 @@ Anthropic社のClaude APIを使用して、自動的にコード変更を生成�
 - 管理者権限のあるSlackワークスペース
 - リポジトリアクセス権限のあるGitHubアカウント
 - Anthropic APIキー
+- Confluenceアカウント（設計機能を使用する場合）
 
 ### 2. インストール
 
@@ -32,12 +36,18 @@ pip install -r requirements.txt
 
 ### 3. 設定
 
-1. **環境変数を`setup-env.sh`で設定**:
+1. **基本環境変数を`setup-env.sh`で設定**:
    ```bash
    export SLACK_BOT_TOKEN="xoxb-your-slack-bot-token"
    export SLACK_SIGNING_SECRET="your-slack-signing-secret"
    export ANTHROPIC_API_KEY="sk-ant-your-anthropic-api-key"
    export GITHUB_ACCESS_TOKEN="ghp_your-github-token"
+   
+   # Confluence連携（オプショナル）
+   export CONFLUENCE_URL="https://your-company.atlassian.net/wiki"
+   export CONFLUENCE_USERNAME="your-email@company.com"
+   export CONFLUENCE_API_TOKEN="your-confluence-api-token"
+   export CONFLUENCE_SPACE_KEY="DEV"
    ```
 
 2. **環境変数を読み込み**:
@@ -71,30 +81,90 @@ python aibot.py
 
 ## 使用方法
 
+### 従来の開発機能
+
 Slackで以下の形式で`/develop`コマンドを使用してください：
 
 ```
 /develop [オーナー/リポジトリ] の [ファイルパス] に [指示]
 ```
 
-### 使用例
-
+**使用例:**
 ```
 /develop sk8metalme/test-repo の main.py に HelloWorldを出力する機能を追加
 ```
 
+### 新機能: 設計ドキュメント作成
+
+要件から詳細な設計ドキュメントを自動生成してConfluenceに作成：
+
+#### 従来版
 ```
-/develop myuser/myapp の app.py に ログイン機能を追加
+/design [プロジェクト名] の [機能名] について [要件・制約]
+```
+
+#### MCP版（推奨）
+```
+/design-mcp [プロジェクト名] の [機能名] について [要件・制約]
+```
+
+**使用例:**
+```
+/design-mcp my-app の ユーザー認証機能 について JWT認証を使用し、ログイン・ログアウト・パスワードリセット機能を含む
+```
+
+### 新機能: 設計ベース開発
+
+Confluenceの設計ドキュメントからコードを生成：
+
+#### 従来版
+```
+/develop-from-design [confluence-url] の [ファイルパス] に実装
+```
+
+#### MCP版（推奨）
+```
+/develop-from-design-mcp [confluence-url] の [ファイルパス] に実装
+```
+
+**使用例:**
+```
+/develop-from-design-mcp https://company.atlassian.net/wiki/spaces/DEV/pages/123456/User-Auth の auth.py に実装
+```
+
+### 新機能: Confluence検索
+
+Confluenceページを検索：
+
+```
+/confluence-search [検索クエリ] [in:スペースキー]
+```
+
+**使用例:**
+```
+/confluence-search ユーザー認証 in:DEV
 ```
 
 ## 動作の仕組み
 
+### 従来の開発フロー
 1. **コマンド処理**: ボットがSlackからスラッシュコマンドを受信
 2. **リポジトリアクセス**: 指定されたGitHubリポジトリから現在のコードを取得
 3. **AI生成**: コードと指示をClaude APIに送信して修正
 4. **ブランチ作成**: 生成された変更内容で新しいブランチを作成
 5. **プルリクエスト**: 修正されたコードでPRを作成
 6. **通知**: SlackでPR URLを応答
+
+### 設計ドキュメント作成フロー
+1. **要件受信**: Slackで`/design`コマンドを受信
+2. **設計生成**: Claude APIで詳細な設計ドキュメントを生成
+3. **Confluence作成**: 設計書をConfluenceページとして作成
+4. **通知**: Slackで設計書URLを応答
+
+### 設計ベース開発フロー
+1. **設計取得**: Confluenceから設計ドキュメントを取得
+2. **コード生成**: 設計内容に基づいてClaude APIでコードを生成
+3. **コード提供**: 生成されたコードをSlackで応答
 
 ## アーキテクチャ
 
@@ -110,6 +180,9 @@ Slackで以下の形式で`/develop`コマンドを使用してください：
 - `PyGithub`: GitHub APIラッパー
 - `flask`: Webフレームワーク
 - `requests`: HTTPライブラリ
+- `atlassian-python-api`: Confluence API操作
+- `beautifulsoup4`: HTML解析
+- `markdown`: マークダウン生成
 
 ## トラブルシューティング
 
