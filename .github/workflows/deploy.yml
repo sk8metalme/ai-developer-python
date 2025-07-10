@@ -1,5 +1,10 @@
 name: Deploy to Cloud Run
 
+# Workload Identity Federation用の権限設定（全体）
+permissions:
+  contents: read
+  id-token: write
+
 on:
   push:
     branches: [ main ]
