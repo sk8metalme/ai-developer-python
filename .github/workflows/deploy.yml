@@ -78,7 +78,7 @@ jobs:
         echo "🐳 Building Docker image: $IMAGE_TAG"
         
         # Cloud Build with better error handling and timeout
-        gcloud builds submit --tag=$IMAGE_TAG . --timeout=1200s --machine-type=e2-standard-4 || {
+        gcloud builds submit --tag=$IMAGE_TAG . --timeout=1200s --machine-type=e2-highcpu-8 || {
           echo "❌ Cloud Build failed. Checking build status..."
           gcloud builds list --limit=1 --filter="status=FAILURE OR status=TIMEOUT"
           exit 1
