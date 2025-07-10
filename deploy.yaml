@@ -13,7 +13,7 @@ spec:
     metadata:
       annotations:
         autoscaling.knative.dev/maxScale: "10"
-        autoscaling.knative.dev/minScale: "0"
+        autoscaling.knative.dev/minScale: "1"
         run.googleapis.com/cpu-throttling: "true"
         run.googleapis.com/execution-environment: gen2
         run.googleapis.com/memory: "1Gi"
