@@ -62,13 +62,21 @@ def get_secret_value(secret_name: str, project_id: Optional[str] = None) -> str:
     try:
         if project_id is None:
             project_id = os.environ.get("GOOGLE_CLOUD_PROJECT")
-            if not project_id:
-                # プロジェクトIDが設定されていない場合は環境変数にフォールバック
-                logging.warning(f"GOOGLE_CLOUD_PROJECT not set, falling back to environment variable for {secret_name}")
-                return os.environ.get(secret_name, "").strip()
         
         client = secretmanager.SecretManagerServiceClient()
+        
+        if not project_id:
+            # プロジェクトIDが設定されていない場合、メタデータサービスから自動検出を試行
+            try:
+                import google.auth
+                _, project_id = google.auth.default()
+                logging.warning(f"GOOGLE_CLOUD_PROJECT not set, auto-detected project: {project_id} for {secret_name}")
+            except Exception:
+                logging.error(f"Could not auto-detect project for {secret_name}, falling back to environment variable")
+                return os.environ.get(secret_name, "").strip()
+        
         name = f"projects/{project_id}/secrets/{secret_name}/versions/latest"
+        
         response = client.access_secret_version(request={"name": name})
         secret_value = response.payload.data.decode("UTF-8").strip()
         logging.info(f"Successfully retrieved secret: {secret_name}")
