@@ -129,8 +129,25 @@ CONFLUENCE_API_TOKEN = secrets["CONFLUENCE_API_TOKEN"]
 CONFLUENCE_SPACE_KEY = secrets["CONFLUENCE_SPACE_KEY"] or "DEV"
 
 # 基本環境変数が設定されているかチェック（ビルド時のテストではスキップ）
-if not os.environ.get("GITHUB_ACTIONS") and not all([SLACK_BOT_TOKEN, SLACK_APP_TOKEN, ANTHROPIC_API_KEY, GITHUB_ACCESS_TOKEN]):
-    raise ValueError("必要な環境変数がすべて設定されていません。SLACK_BOT_TOKEN, SLACK_APP_TOKEN, ANTHROPIC_API_KEY, GITHUB_ACCESS_TOKEN を確認してください。")
+if not os.environ.get("GITHUB_ACTIONS"):
+    missing_vars = []
+    if not SLACK_BOT_TOKEN:
+        missing_vars.append("SLACK_BOT_TOKEN")
+    if not SLACK_APP_TOKEN:
+        missing_vars.append("SLACK_APP_TOKEN")
+    if not ANTHROPIC_API_KEY:
+        missing_vars.append("ANTHROPIC_API_KEY")
+    if not GITHUB_ACCESS_TOKEN:
+        missing_vars.append("GITHUB_ACCESS_TOKEN")
+    
+    if missing_vars:
+        logging.error(f"環境変数の詳細状況:")
+        logging.error(f"  SLACK_BOT_TOKEN: {'設定済み' if SLACK_BOT_TOKEN else '未設定'}")
+        logging.error(f"  SLACK_APP_TOKEN: {'設定済み' if SLACK_APP_TOKEN else '未設定'}")
+        logging.error(f"  ANTHROPIC_API_KEY: {'設定済み' if ANTHROPIC_API_KEY else '未設定'}")
+        logging.error(f"  GITHUB_ACCESS_TOKEN: {'設定済み' if GITHUB_ACCESS_TOKEN else '未設定'}")
+        logging.error(f"  GOOGLE_CLOUD_PROJECT: {os.environ.get('GOOGLE_CLOUD_PROJECT', '未設定')}")
+        raise ValueError(f"必要な環境変数が設定されていません: {', '.join(missing_vars)}")
 
 # Confluence設定のチェック
 CONFLUENCE_ENABLED = all([CONFLUENCE_URL, CONFLUENCE_USERNAME, CONFLUENCE_API_TOKEN])
