@@ -1,5 +1,10 @@
 name: Deploy to Cloud Run
 
+# Workload Identity Federation用の権限設定（全体）
+permissions:
+  contents: read
+  id-token: write
+
 on:
   push:
     branches: [ main ]
@@ -21,11 +26,6 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    
-    # Workload Identity Federation用の権限設定
-    permissions:
-      contents: read
-      id-token: write
     
     # 本番環境はmainブランチのみ、PRはstagingとして扱う
     environment: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && 'production' || 'staging' }}
