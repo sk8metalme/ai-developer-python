@@ -78,9 +78,23 @@ jobs:
         echo "🐳 Building Docker image: $IMAGE_TAG"
         
         # Cloud Build with better error handling and timeout
-        gcloud builds submit --tag=$IMAGE_TAG . --timeout=1200s --machine-type=e2-highcpu-8 || {
-          echo "❌ Cloud Build failed. Checking build status..."
-          gcloud builds list --limit=1 --filter="status=FAILURE OR status=TIMEOUT"
+        BUILD_ID=$(gcloud builds submit --tag=$IMAGE_TAG . --timeout=1200s --machine-type=e2-highcpu-8 --format="value(id)" 2>&1) || {
+          echo "❌ Cloud Build failed."
+          echo ""
+          echo "🔍 最新のビルド状況を確認中..."
+          LATEST_BUILD=$(gcloud builds list --limit=1 --format="value(id,status,logUrl)" --filter="status=FAILURE OR status=TIMEOUT")
+          if [ ! -z "$LATEST_BUILD" ]; then
+            echo "失敗したビルド: $LATEST_BUILD"
+            echo ""
+            echo "📋 ビルドログを確認してください："
+            echo "   https://console.cloud.google.com/cloud-build/builds"
+            echo ""
+            echo "🔧 一般的な解決策："
+            echo "   1. Dockerfileの構文確認"
+            echo "   2. requirements.txtの依存関係確認" 
+            echo "   3. ファイルパス・権限の確認"
+            echo "   4. リソース制限の確認"
+          fi
           exit 1
         }
         
