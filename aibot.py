@@ -140,13 +140,20 @@ else:
     logging.warning("Confluence環境変数が不完全です。Confluence機能は無効になります。")
 
 # --- 各種クライアントの初期化 ---
-app = App(token=SLACK_BOT_TOKEN, process_before_response=True)
-anthropic_client = Anthropic(api_key=ANTHROPIC_API_KEY)
-github_client = Github(GITHUB_ACCESS_TOKEN)
+# GitHub Actionsでのビルド時はダミートークンで初期化
+if os.environ.get("GITHUB_ACTIONS"):
+    # GitHub Actions実行時はダミー値で初期化
+    app = App(token="xoxb-dummy-token-for-build", process_before_response=True)
+    anthropic_client = None
+    github_client = None
+else:
+    app = App(token=SLACK_BOT_TOKEN, process_before_response=True)
+    anthropic_client = Anthropic(api_key=ANTHROPIC_API_KEY)
+    github_client = Github(GITHUB_ACCESS_TOKEN)
 
 # Confluenceクライアントの初期化（有効な場合のみ）
 confluence_client = None
-if CONFLUENCE_ENABLED:
+if CONFLUENCE_ENABLED and not os.environ.get("GITHUB_ACTIONS"):
     try:
         confluence_client = Confluence(
             url=CONFLUENCE_URL,
