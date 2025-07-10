@@ -142,8 +142,9 @@ else:
 # --- 各種クライアントの初期化 ---
 # GitHub Actionsでのビルド時はダミートークンで初期化
 if os.environ.get("GITHUB_ACTIONS"):
-    # GitHub Actions実行時はダミー値で初期化
-    app = App(token="xoxb-dummy-token-for-build", process_before_response=True)
+    # GitHub Actions実行時はダミー値で初期化（認証テスト無効）
+    app = App(token="xoxb-dummy-token-for-build", process_before_response=True, 
+              token_verification_enabled=False)
     anthropic_client = None
     github_client = None
 else:
