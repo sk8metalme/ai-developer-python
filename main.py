@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
 Google Cloud Run エントリーポイント (Socket Mode + Health Check Server)
-aibot.py をGoogle Cloud Run で実行するためのラッパー
+確実にport 8080でリッスンする簡潔な実装
 """
 
 import os
 import logging
-import signal
 import sys
 import threading
+import time
 from flask import Flask, jsonify
 
 # ロギング設定
@@ -19,77 +19,95 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-# ヘルスチェック用のFlaskアプリ
-health_app = Flask(__name__)
+def create_health_app():
+    """ヘルスチェック用のFlaskアプリを作成"""
+    app = Flask(__name__)
+    
+    @app.route("/health", methods=["GET"])
+    def health_check():
+        return jsonify({"status": "healthy", "service": "slack-ai-bot"}), 200
 
-@health_app.route("/health", methods=["GET"])
-def health_check():
-    return jsonify({"status": "healthy", "service": "slack-ai-bot-socket-mode"}), 200
+    @app.route("/", methods=["GET"])
+    def root():
+        return jsonify({"status": "running", "service": "slack-ai-bot"}), 200
+    
+    return app
 
-@health_app.route("/", methods=["GET"])
-def root():
-    return jsonify({"status": "Socket Mode Active", "service": "slack-ai-bot"}), 200
+def initialize_socket_mode():
+    """Socket Modeを安全に初期化（別スレッド）"""
+    def socket_mode_worker():
+        time.sleep(10)  # ヘルスサーバーの完全起動を待つ
+        
+        try:
+            logger.info("🔌 Socket Mode初期化を開始...")
+            
+            # 環境変数の基本チェック
+            if os.environ.get("GITHUB_ACTIONS"):
+                logger.info("GitHub Actions環境でのビルド - Socket Modeスキップ")
+                return
+            
+            # aibot.pyのimportを試行
+            try:
+                logger.info("📦 aibot.pyをimport中...")
+                from aibot import app as slack_app, SLACK_APP_TOKEN
+                logger.info("✅ aibot.py import成功")
+                
+                if not SLACK_APP_TOKEN:
+                    logger.warning("⚠️ SLACK_APP_TOKEN未設定 - Socket Modeスキップ")
+                    return
+                
+                logger.info(f"🔑 SLACK_APP_TOKEN: {SLACK_APP_TOKEN[:10]}...")
+                
+                # Socket Mode Handler起動
+                from slack_bolt.adapter.socket_mode import SocketModeHandler
+                handler = SocketModeHandler(slack_app, SLACK_APP_TOKEN)
+                
+                logger.info("🚀 Socket Mode接続開始...")
+                handler.start()  # ブロッキング実行
+                
+            except ImportError as e:
+                logger.error(f"❌ aibot.py import失敗: {e}")
+                logger.info("ヘルスチェックサーバーのみで継続")
+            except Exception as e:
+                logger.error(f"❌ Socket Mode初期化エラー: {e}")
+                logger.info("ヘルスチェックサーバーのみで継続")
+                
+        except Exception as e:
+            logger.error(f"❌ Socket Mode worker予期せぬエラー: {e}")
+    
+    # Socket Modeを別スレッドで実行（失敗してもヘルスサーバーに影響しない）
+    socket_thread = threading.Thread(target=socket_mode_worker, daemon=True)
+    socket_thread.start()
+    logger.info("🔌 Socket Mode初期化スレッド開始")
 
-def run_health_server():
-    """ヘルスチェック用サーバーを起動"""
+def main():
+    """メイン関数 - 確実にヘルスサーバーを起動"""
+    logger.info("🤖 Slack AI Bot (Cloud Run) 起動開始...")
+    
+    # ポート設定
     port = int(os.environ.get("PORT", 8080))
-    logging.info(f"Starting health check server on port {port}")
-    health_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False, threaded=True)
-
-def signal_handler(sig, frame):
-    """シグナルハンドラー"""
-    logging.info('Socket Mode を終了します...')
-    sys.exit(0)
+    logger.info(f"🌐 ポート設定: {port}")
+    
+    # Flaskアプリ作成
+    health_app = create_health_app()
+    logger.info("✅ ヘルスチェックアプリ作成完了")
+    
+    # Socket Mode初期化（非ブロッキング）
+    initialize_socket_mode()
+    
+    # メインスレッドでヘルスサーバー実行（最優先）
+    try:
+        logger.info(f"🚀 ヘルスチェックサーバー起動中 (port:{port})...")
+        health_app.run(
+            host="0.0.0.0",
+            port=port,
+            debug=False,
+            use_reloader=False,
+            threaded=True
+        )
+    except Exception as e:
+        logger.error(f"❌ ヘルスサーバー起動失敗: {e}")
+        sys.exit(1)
 
 if __name__ == "__main__":
-    logging.info("🤖 Slack AI開発ボット (Socket Mode + Health Check) を起動します...")
-    
-    # シグナルハンドラーの設定
-    signal.signal(signal.SIGINT, signal_handler)
-    signal.signal(signal.SIGTERM, signal_handler)
-    
-    # Socket Mode の初期化を別スレッドで実行（失敗してもヘルスサーバーは継続）
-    def delayed_socket_mode_init():
-        import time
-        time.sleep(5)  # ヘルスチェックサーバーの起動を待つ
-        try:
-            logging.info("Socket Mode の初期化を開始します...")
-            
-            # aibot.py のimportを慎重に実行
-            try:
-                from aibot import app, SLACK_APP_TOKEN
-                logging.info("✅ aibot.py を正常にimportしました")
-            except Exception as import_error:
-                logging.error(f"❌ aibot.py のimportでエラー: {import_error}")
-                logging.info("ヘルスチェックサーバーのみで動作を継続します")
-                return
-            
-            # Socket Mode Handlerの初期化
-            from slack_bolt.adapter.socket_mode import SocketModeHandler
-            
-            if not SLACK_APP_TOKEN:
-                logging.warning("SLACK_APP_TOKEN が設定されていません。Socket Mode をスキップします。")
-                return
-                
-            logging.info(f"Socket Mode App Token: {SLACK_APP_TOKEN[:10]}...")
-            socket_mode_handler = SocketModeHandler(app, SLACK_APP_TOKEN)
-            logging.info("Socket Mode で接続を開始します...")
-            
-            # Socket Mode を開始（ブロッキング）
-            socket_mode_handler.start()
-            
-        except Exception as e:
-            logging.error(f"Socket Mode 初期化エラー: {e}")
-            logging.info("ヘルスチェックサーバーのみ継続して動作します...")
-    
-    # Socket Mode を別スレッドで遅延実行（daemon=True で失敗しても影響しない）
-    socket_thread = threading.Thread(target=delayed_socket_mode_init, daemon=True)
-    socket_thread.start()
-    
-    # メインスレッドでヘルスチェックサーバーを実行（Cloud Runに必須）
-    logging.info("メインスレッドでヘルスチェックサーバーを開始します...")
-    try:
-        run_health_server()  # メインスレッドで実行（ブロッキング）
-    except Exception as e:
-        logging.error(f"ヘルスチェックサーバー エラー: {e}")
-        sys.exit(1)
+    main()
