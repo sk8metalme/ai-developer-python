@@ -137,10 +137,13 @@ jobs:
           --allow-unauthenticated \
           --timeout=540s \
           --memory=1Gi \
+          --cpu=1 \
           --max-instances=$MAX_INSTANCES \
           --min-instances=$MIN_INSTANCES \
           --port=8080 \
-          --set-env-vars="CONFLUENCE_SPACE_KEY=DEV,LOG_LEVEL=$LOG_LEVEL,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,ENVIRONMENT=${{ env.ENVIRONMENT }}" \
+          --startup-cpu-boost \
+          --execution-environment=gen2 \
+          --set-env-vars="CONFLUENCE_SPACE_KEY=DEV,LOG_LEVEL=$LOG_LEVEL,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,ENVIRONMENT=${{ env.ENVIRONMENT }},PORT=8080" \
           --update-env-vars="GOOGLE_CLOUD_PROJECT=$PROJECT_ID" \
           --update-secrets="SLACK_BOT_TOKEN=SLACK_BOT_TOKEN:latest,SLACK_APP_TOKEN=SLACK_APP_TOKEN:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,GITHUB_ACCESS_TOKEN=GITHUB_ACCESS_TOKEN:latest,CONFLUENCE_URL=CONFLUENCE_URL:latest,CONFLUENCE_USERNAME=CONFLUENCE_USERNAME:latest,CONFLUENCE_API_TOKEN=CONFLUENCE_API_TOKEN:latest"
     
