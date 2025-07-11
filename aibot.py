@@ -92,9 +92,25 @@ import concurrent.futures
 import time
 
 def load_secrets_parallel():
-    """並行処理でシークレットを読み込み"""
+    """並行処理でシークレットを読み込み（環境別対応）"""
     secrets = {}
-    secret_names = [
+    
+    # 環境の取得
+    environment = os.environ.get("ENVIRONMENT", "development").upper()
+    
+    # 環境別シークレット名の生成
+    def get_env_secret_name(base_name):
+        # Slack系のみ環境別に分離
+        if base_name in ["SLACK_BOT_TOKEN", "SLACK_APP_TOKEN"]:
+            if environment == "PRODUCTION":
+                return f"{base_name}_PROD"
+            elif environment == "STAGING":
+                return f"{base_name}_STAGING"
+            else:  # DEVELOPMENT
+                return f"{base_name}_STAGING"  # development環境もstagingトークンを使用
+        return base_name  # その他は共通
+    
+    base_secret_names = [
         "SLACK_BOT_TOKEN",
         "SLACK_APP_TOKEN",
         "ANTHROPIC_API_KEY", 
@@ -105,8 +121,17 @@ def load_secrets_parallel():
         "CONFLUENCE_SPACE_KEY"
     ]
     
+    # 環境別シークレット名でマッピング作成
+    secret_mapping = {name: get_env_secret_name(name) for name in base_secret_names}
+    
+    logging.info(f"Environment: {environment}")
+    logging.info(f"Secret mapping: {secret_mapping}")
+    
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-        future_to_secret = {executor.submit(get_secret_value, secret_name): secret_name for secret_name in secret_names}
+        future_to_secret = {}
+        for base_name, actual_secret_name in secret_mapping.items():
+            future = executor.submit(get_secret_value, actual_secret_name)
+            future_to_secret[future] = base_name  # 基本名で管理
         
         for future in concurrent.futures.as_completed(future_to_secret):
             secret_name = future_to_secret[future]
