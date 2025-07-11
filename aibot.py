@@ -189,6 +189,15 @@ if CONFLUENCE_ENABLED:
 else:
     logging.warning("Confluence環境変数が不完全です。Confluence機能は無効になります。")
 
+# 環境別コマンドプレフィックスの設定
+ENVIRONMENT = os.environ.get("ENVIRONMENT", "development").lower()
+if ENVIRONMENT == "production":
+    COMMAND_PREFIX = ""  # 本番環境は既存コマンド名
+else:
+    COMMAND_PREFIX = "dev-"  # staging/development環境はdev-プレフィックス
+
+logging.info(f"Environment: {ENVIRONMENT}, Command prefix: '{COMMAND_PREFIX}'")
+
 # --- 各種クライアントの初期化 ---
 # GitHub Actionsでのビルド時はダミートークンで初期化
 if os.environ.get("GITHUB_ACTIONS"):
@@ -549,7 +558,13 @@ def process_development_task(body, response_url):
         logging.error(f"予期せぬエラー: {e}")
         requests.post(response_url, json={"text": f"予期せぬエラーが発生しました。詳細はログを確認してください。"})
 
-@app.command("/develop")
+# 環境別コマンド登録のヘルパー関数
+def register_command(command_name):
+    """環境に応じたコマンド名でデコレータを返す"""
+    full_command_name = f"/{COMMAND_PREFIX}{command_name}"
+    return app.command(full_command_name)
+
+@register_command("develop")
 def handle_develop_command(ack, body, say):
     """Slackからのスラッシュコマンドを受け取るハンドラ"""
     # Slackの3秒タイムアウトに応答
@@ -670,7 +685,7 @@ def process_design_based_development_task(body, response_url):
         logging.error(f"設計ベース開発タスク処理エラー: {e}")
         requests.post(response_url, json={"text": f"設計ベース開発中にエラーが発生しました: {e}"})
 
-@app.command("/design")
+@register_command("design")
 def handle_design_command(ack, body, say):
     """設計ドキュメント作成コマンドのハンドラー"""
     # Slackの3秒タイムアウトに応答
@@ -680,7 +695,7 @@ def handle_design_command(ack, body, say):
     thread = threading.Thread(target=process_design_task, args=(body, body['response_url']))
     thread.start()
 
-@app.command("/develop-from-design")
+@register_command("develop-from-design")
 def handle_develop_from_design_command(ack, body, say):
     """設計ベース開発コマンドのハンドラー"""
     # Slackの3秒タイムアウトに応答
@@ -817,7 +832,7 @@ async def process_design_based_development_task_mcp(body, response_url):
         logging.error(f"MCP設計ベース開発タスク処理エラー: {e}")
         requests.post(response_url, json={"text": f"MCP設計ベース開発中にエラーが発生しました: {e}"})
 
-@app.command("/design-mcp")
+@register_command("design-mcp")
 def handle_design_command_mcp(ack, body, say):
     """MCP版設計ドキュメント作成コマンドのハンドラー"""
     # Slackの3秒タイムアウトに応答
@@ -826,7 +841,7 @@ def handle_design_command_mcp(ack, body, say):
     # バックグラウンドでタスクを実行
     run_async_safely(process_design_task_mcp(body, body['response_url']))
 
-@app.command("/develop-from-design-mcp")
+@register_command("develop-from-design-mcp")
 def handle_develop_from_design_command_mcp(ack, body, say):
     """MCP版設計ベース開発コマンドのハンドラー"""
     # Slackの3秒タイムアウトに応答
@@ -835,7 +850,7 @@ def handle_develop_from_design_command_mcp(ack, body, say):
     # バックグラウンドでタスクを実行
     run_async_safely(process_design_based_development_task_mcp(body, body['response_url']))
 
-@app.command("/confluence-search")
+@register_command("confluence-search")
 def handle_confluence_search_command(ack, body, say):
     """Confluence検索コマンドのハンドラー"""
     # Slackの3秒タイムアウトに応答
