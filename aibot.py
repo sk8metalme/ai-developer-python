@@ -92,9 +92,25 @@ import concurrent.futures
 import time
 
 def load_secrets_parallel():
-    """並行処理でシークレットを読み込み"""
+    """並行処理でシークレットを読み込み（環境別対応）"""
     secrets = {}
-    secret_names = [
+    
+    # 環境の取得
+    environment = os.environ.get("ENVIRONMENT", "development").upper()
+    
+    # 環境別シークレット名の生成
+    def get_env_secret_name(base_name):
+        # Slack系のみ環境別に分離
+        if base_name in ["SLACK_BOT_TOKEN", "SLACK_APP_TOKEN"]:
+            if environment == "PRODUCTION":
+                return f"{base_name}_PROD"
+            elif environment == "STAGING":
+                return f"{base_name}_STAGING"
+            else:  # DEVELOPMENT
+                return f"{base_name}_STAGING"  # development環境もstagingトークンを使用
+        return base_name  # その他は共通
+    
+    base_secret_names = [
         "SLACK_BOT_TOKEN",
         "SLACK_APP_TOKEN",
         "ANTHROPIC_API_KEY", 
@@ -105,8 +121,17 @@ def load_secrets_parallel():
         "CONFLUENCE_SPACE_KEY"
     ]
     
+    # 環境別シークレット名でマッピング作成
+    secret_mapping = {name: get_env_secret_name(name) for name in base_secret_names}
+    
+    logging.info(f"Environment: {environment}")
+    logging.info(f"Secret mapping: {secret_mapping}")
+    
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-        future_to_secret = {executor.submit(get_secret_value, secret_name): secret_name for secret_name in secret_names}
+        future_to_secret = {}
+        for base_name, actual_secret_name in secret_mapping.items():
+            future = executor.submit(get_secret_value, actual_secret_name)
+            future_to_secret[future] = base_name  # 基本名で管理
         
         for future in concurrent.futures.as_completed(future_to_secret):
             secret_name = future_to_secret[future]
@@ -134,7 +159,7 @@ GITHUB_ACCESS_TOKEN = secrets["GITHUB_ACCESS_TOKEN"]
 CONFLUENCE_URL = secrets["CONFLUENCE_URL"]
 CONFLUENCE_USERNAME = secrets["CONFLUENCE_USERNAME"]
 CONFLUENCE_API_TOKEN = secrets["CONFLUENCE_API_TOKEN"]
-CONFLUENCE_SPACE_KEY = secrets["CONFLUENCE_SPACE_KEY"] or "DEV"
+CONFLUENCE_SPACE_KEY = secrets["CONFLUENCE_SPACE_KEY"] or "SCRUM"
 
 # 基本環境変数が設定されているかチェック（ビルド時のテストではスキップ）
 if not os.environ.get("GITHUB_ACTIONS"):
@@ -163,6 +188,15 @@ if CONFLUENCE_ENABLED:
     logging.info("Confluence連携が有効になりました")
 else:
     logging.warning("Confluence環境変数が不完全です。Confluence機能は無効になります。")
+
+# 環境別コマンドプレフィックスの設定
+ENVIRONMENT = os.environ.get("ENVIRONMENT", "development").lower()
+if ENVIRONMENT == "production":
+    COMMAND_PREFIX = ""  # 本番環境は既存コマンド名
+else:
+    COMMAND_PREFIX = "stg-"  # staging/development環境はstg-プレフィックス
+
+logging.info(f"Environment: {ENVIRONMENT}, Command prefix: '{COMMAND_PREFIX}'")
 
 # --- 各種クライアントの初期化 ---
 # GitHub Actionsでのビルド時はダミートークンで初期化
@@ -524,7 +558,13 @@ def process_development_task(body, response_url):
         logging.error(f"予期せぬエラー: {e}")
         requests.post(response_url, json={"text": f"予期せぬエラーが発生しました。詳細はログを確認してください。"})
 
-@app.command("/develop")
+# 環境別コマンド登録のヘルパー関数
+def register_command(command_name):
+    """環境に応じたコマンド名でデコレータを返す"""
+    full_command_name = f"/{COMMAND_PREFIX}{command_name}"
+    return app.command(full_command_name)
+
+@register_command("develop")
 def handle_develop_command(ack, body, say):
     """Slackからのスラッシュコマンドを受け取るハンドラ"""
     # Slackの3秒タイムアウトに応答
@@ -645,7 +685,7 @@ def process_design_based_development_task(body, response_url):
         logging.error(f"設計ベース開発タスク処理エラー: {e}")
         requests.post(response_url, json={"text": f"設計ベース開発中にエラーが発生しました: {e}"})
 
-@app.command("/design")
+@register_command("design")
 def handle_design_command(ack, body, say):
     """設計ドキュメント作成コマンドのハンドラー"""
     # Slackの3秒タイムアウトに応答
@@ -655,7 +695,7 @@ def handle_design_command(ack, body, say):
     thread = threading.Thread(target=process_design_task, args=(body, body['response_url']))
     thread.start()
 
-@app.command("/develop-from-design")
+@register_command("develop-from-design")
 def handle_develop_from_design_command(ack, body, say):
     """設計ベース開発コマンドのハンドラー"""
     # Slackの3秒タイムアウトに応答
@@ -677,8 +717,14 @@ async def process_design_task_mcp(body, response_url):
         
         if not MCP_AVAILABLE:
             send_message("⚠️ Atlassian MCP機能が利用できません。従来の方式で処理します...")
-            # フォールバックとして従来の処理を実行
-            return process_design_task(body, response_url)
+            # フォールバックとして従来の処理を実行（非同期から同期処理へ）
+            def run_fallback():
+                process_design_task(body, response_url)
+            
+            import threading
+            thread = threading.Thread(target=run_fallback)
+            thread.start()
+            return
         
         # コマンド形式の解析
         parts = text.split(" の ", 1)
@@ -706,7 +752,7 @@ async def process_design_task_mcp(body, response_url):
         page_title = f"{project_name} - {feature_name} 設計書"
         
         # デフォルトスペースキーを使用（環境変数から取得、なければDEV）
-        default_space = os.environ.get("CONFLUENCE_SPACE_KEY", "DEV").strip()
+        default_space = os.environ.get("CONFLUENCE_SPACE_KEY", "SCRUM").strip()
         
         result = await create_confluence_page_mcp(default_space, page_title, design_content)
         
@@ -722,6 +768,36 @@ async def process_design_task_mcp(body, response_url):
         else:
             error_msg = result.get("error", "不明なエラー")
             send_message(f"❌ MCP経由でのConfluenceページ作成中にエラーが発生しました:\n{error_msg}")
+            send_message("🔄 従来方式でのページ作成にフォールバックします...")
+            
+            # 従来方式でのページ作成を試行
+            try:
+                from atlassian import Confluence
+                confluence = Confluence(
+                    url=os.environ.get("CONFLUENCE_URL"),
+                    username=os.environ.get("CONFLUENCE_USERNAME"),
+                    password=os.environ.get("CONFLUENCE_API_TOKEN"),
+                    cloud=True
+                )
+                
+                import markdown
+                html_content = markdown.markdown(design_content)
+                
+                # ページ作成
+                page = confluence.create_page(
+                    space=default_space,
+                    title=page_title,
+                    body=html_content,
+                    type='page',
+                    representation='storage'
+                )
+                
+                page_url = f"{os.environ.get('CONFLUENCE_URL')}/spaces/{default_space}/pages/{page['id']}"
+                send_message(f"✅ 従来方式での設計ドキュメント作成が完了しました！\n📄 設計書: {page_url}")
+                
+            except Exception as fallback_error:
+                logging.error(f"従来方式でのページ作成も失敗: {fallback_error}")
+                send_message(f"❌ 従来方式でのページ作成も失敗しました: {fallback_error}")
             
     except Exception as e:
         logging.error(f"MCP設計タスク処理エラー: {e}")
@@ -792,7 +868,7 @@ async def process_design_based_development_task_mcp(body, response_url):
         logging.error(f"MCP設計ベース開発タスク処理エラー: {e}")
         requests.post(response_url, json={"text": f"MCP設計ベース開発中にエラーが発生しました: {e}"})
 
-@app.command("/design-mcp")
+@register_command("design-mcp")
 def handle_design_command_mcp(ack, body, say):
     """MCP版設計ドキュメント作成コマンドのハンドラー"""
     # Slackの3秒タイムアウトに応答
@@ -801,7 +877,7 @@ def handle_design_command_mcp(ack, body, say):
     # バックグラウンドでタスクを実行
     run_async_safely(process_design_task_mcp(body, body['response_url']))
 
-@app.command("/develop-from-design-mcp")
+@register_command("develop-from-design-mcp")
 def handle_develop_from_design_command_mcp(ack, body, say):
     """MCP版設計ベース開発コマンドのハンドラー"""
     # Slackの3秒タイムアウトに応答
@@ -810,7 +886,7 @@ def handle_develop_from_design_command_mcp(ack, body, say):
     # バックグラウンドでタスクを実行
     run_async_safely(process_design_based_development_task_mcp(body, body['response_url']))
 
-@app.command("/confluence-search")
+@register_command("confluence-search")
 def handle_confluence_search_command(ack, body, say):
     """Confluence検索コマンドのハンドラー"""
     # Slackの3秒タイムアウトに応答
