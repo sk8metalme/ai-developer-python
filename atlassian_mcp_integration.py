@@ -24,7 +24,7 @@ ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "").strip()
 CONFLUENCE_URL = os.environ.get("CONFLUENCE_URL", "").strip()
 CONFLUENCE_USERNAME = os.environ.get("CONFLUENCE_USERNAME", "").strip()
 CONFLUENCE_API_TOKEN = os.environ.get("CONFLUENCE_API_TOKEN", "").strip()
-CONFLUENCE_SPACE_KEY = os.environ.get("CONFLUENCE_SPACE_KEY", "DEV").strip()
+CONFLUENCE_SPACE_KEY = os.environ.get("CONFLUENCE_SPACE_KEY", "SCRUM").strip()
 
 # Anthropicクライアントの初期化
 anthropic_client = Anthropic(api_key=ANTHROPIC_API_KEY)

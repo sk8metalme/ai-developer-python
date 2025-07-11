@@ -159,7 +159,7 @@ GITHUB_ACCESS_TOKEN = secrets["GITHUB_ACCESS_TOKEN"]
 CONFLUENCE_URL = secrets["CONFLUENCE_URL"]
 CONFLUENCE_USERNAME = secrets["CONFLUENCE_USERNAME"]
 CONFLUENCE_API_TOKEN = secrets["CONFLUENCE_API_TOKEN"]
-CONFLUENCE_SPACE_KEY = secrets["CONFLUENCE_SPACE_KEY"] or "DEV"
+CONFLUENCE_SPACE_KEY = secrets["CONFLUENCE_SPACE_KEY"] or "SCRUM"
 
 # 基本環境変数が設定されているかチェック（ビルド時のテストではスキップ）
 if not os.environ.get("GITHUB_ACTIONS"):
@@ -752,7 +752,7 @@ async def process_design_task_mcp(body, response_url):
         page_title = f"{project_name} - {feature_name} 設計書"
         
         # デフォルトスペースキーを使用（環境変数から取得、なければDEV）
-        default_space = os.environ.get("CONFLUENCE_SPACE_KEY", "DEV").strip()
+        default_space = os.environ.get("CONFLUENCE_SPACE_KEY", "SCRUM").strip()
         
         result = await create_confluence_page_mcp(default_space, page_title, design_content)
         
