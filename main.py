@@ -16,8 +16,11 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-# Flaskアプリ作成
+# Flaskアプリ作成（Gunicorn用）
 app = Flask(__name__)
+
+# Gunicorn用のappオブジェクト
+application = app
 
 @app.route("/", methods=["GET"])
 def root():

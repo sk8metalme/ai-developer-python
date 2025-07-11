@@ -1,0 +1,89 @@
+name: Deploy Simple Version to Cloud Run
+
+# Workload Identity Federation用の権限設定
+permissions:
+  contents: read
+  id-token: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Deployment environment'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    environment: ${{ github.event.inputs.environment || 'staging' }}
+    
+    env:
+      SERVICE_NAME: slack-ai-bot-simple
+      REGION: asia-northeast1
+      ENVIRONMENT: ${{ github.event.inputs.environment || 'staging' }}
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Authenticate to Google Cloud
+      uses: google-github-actions/auth@v2
+      with:
+        workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+        service_account: ${{ secrets.WIF_SERVICE_ACCOUNT }}
+    
+    - name: Set up Cloud SDK
+      uses: google-github-actions/setup-gcloud@v2
+    
+    - name: Get Project ID from gcloud
+      id: project
+      run: |
+        PROJECT_ID=$(gcloud config get-value project)
+        echo "PROJECT_ID=$PROJECT_ID" >> $GITHUB_OUTPUT
+        echo "Detected Project ID: $PROJECT_ID"
+    
+    - name: Configure Docker
+      run: gcloud auth configure-docker asia-northeast1-docker.pkg.dev
+    
+    - name: Build and Deploy Simple Version
+      env:
+        PROJECT_ID: ${{ steps.project.outputs.PROJECT_ID }}
+      run: |
+        IMAGE_TAG=asia-northeast1-docker.pkg.dev/${PROJECT_ID}/slack-ai-bot/${SERVICE_NAME}:${{ github.sha }}
+        
+        echo "🐳 Building simple Docker image: $IMAGE_TAG"
+        gcloud builds submit --tag=$IMAGE_TAG -f Dockerfile.simple .
+        
+        echo "🚀 Deploying simple version to Cloud Run"
+        gcloud run deploy $SERVICE_NAME \
+          --image=$IMAGE_TAG \
+          --region=$REGION \
+          --platform=managed \
+          --allow-unauthenticated \
+          --timeout=300s \
+          --memory=512Mi \
+          --cpu=1000m \
+          --max-instances=3 \
+          --min-instances=0 \
+          --port=8080 \
+          --set-env-vars="ENVIRONMENT=$ENVIRONMENT,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,PORT=8080"
+    
+    - name: Get service URL and test
+      env:
+        PROJECT_ID: ${{ steps.project.outputs.PROJECT_ID }}
+      run: |
+        SERVICE_URL=$(gcloud run services describe $SERVICE_NAME --region=$REGION --format="value(status.url)")
+        echo "🌐 Service URL: $SERVICE_URL"
+        
+        echo "🏥 Testing health endpoint..."
+        sleep 30
+        curl -f "$SERVICE_URL/health" || echo "Health check failed"
+        
+        echo "🧪 Testing debug endpoint..."
+        curl -f "$SERVICE_URL/debug" || echo "Debug endpoint failed"
