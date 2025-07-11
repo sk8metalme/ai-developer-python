@@ -1,0 +1,21 @@
+# 最もシンプルなDockerfile
+FROM python:3.11-slim
+
+# 作業ディレクトリ
+WORKDIR /app
+
+# 環境変数
+ENV PYTHONUNBUFFERED=1
+ENV PORT=8080
+
+# 最小限の依存関係をインストール
+RUN pip install flask gunicorn
+
+# アプリファイルをコピー
+COPY app.py .
+
+# ポート公開
+EXPOSE 8080
+
+# Gunicornでアプリを起動
+CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 0 app:app
