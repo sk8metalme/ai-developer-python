@@ -194,7 +194,7 @@ ENVIRONMENT = os.environ.get("ENVIRONMENT", "development").lower()
 if ENVIRONMENT == "production":
     COMMAND_PREFIX = ""  # 本番環境は既存コマンド名
 else:
-    COMMAND_PREFIX = "dev-"  # staging/development環境はdev-プレフィックス
+    COMMAND_PREFIX = "stg-"  # staging/development環境はstg-プレフィックス
 
 logging.info(f"Environment: {ENVIRONMENT}, Command prefix: '{COMMAND_PREFIX}'")
 
