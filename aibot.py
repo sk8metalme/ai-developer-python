@@ -717,8 +717,14 @@ async def process_design_task_mcp(body, response_url):
         
         if not MCP_AVAILABLE:
             send_message("⚠️ Atlassian MCP機能が利用できません。従来の方式で処理します...")
-            # フォールバックとして従来の処理を実行
-            return process_design_task(body, response_url)
+            # フォールバックとして従来の処理を実行（非同期から同期処理へ）
+            def run_fallback():
+                process_design_task(body, response_url)
+            
+            import threading
+            thread = threading.Thread(target=run_fallback)
+            thread.start()
+            return
         
         # コマンド形式の解析
         parts = text.split(" の ", 1)
@@ -762,6 +768,36 @@ async def process_design_task_mcp(body, response_url):
         else:
             error_msg = result.get("error", "不明なエラー")
             send_message(f"❌ MCP経由でのConfluenceページ作成中にエラーが発生しました:\n{error_msg}")
+            send_message("🔄 従来方式でのページ作成にフォールバックします...")
+            
+            # 従来方式でのページ作成を試行
+            try:
+                from atlassian import Confluence
+                confluence = Confluence(
+                    url=os.environ.get("CONFLUENCE_URL"),
+                    username=os.environ.get("CONFLUENCE_USERNAME"),
+                    password=os.environ.get("CONFLUENCE_API_TOKEN"),
+                    cloud=True
+                )
+                
+                import markdown
+                html_content = markdown.markdown(design_content)
+                
+                # ページ作成
+                page = confluence.create_page(
+                    space=default_space,
+                    title=page_title,
+                    body=html_content,
+                    type='page',
+                    representation='storage'
+                )
+                
+                page_url = f"{os.environ.get('CONFLUENCE_URL')}/spaces/{default_space}/pages/{page['id']}"
+                send_message(f"✅ 従来方式での設計ドキュメント作成が完了しました！\n📄 設計書: {page_url}")
+                
+            except Exception as fallback_error:
+                logging.error(f"従来方式でのページ作成も失敗: {fallback_error}")
+                send_message(f"❌ 従来方式でのページ作成も失敗しました: {fallback_error}")
             
     except Exception as e:
         logging.error(f"MCP設計タスク処理エラー: {e}")
