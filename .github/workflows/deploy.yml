@@ -120,7 +120,7 @@ jobs:
             LOG_LEVEL=INFO
             ;;
           "staging")
-            MIN_INSTANCES=0
+            MIN_INSTANCES=1
             MAX_INSTANCES=3
             LOG_LEVEL=DEBUG
             ;;
