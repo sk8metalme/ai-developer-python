@@ -77,21 +77,33 @@ jobs:
         
         echo "🐳 Building Docker image: $IMAGE_TAG"
         
-        # Cloud Build with proper error handling  
+        # Cloud Build with async execution to avoid VPC-SC log streaming issues
         echo "🚀 Submitting build to Cloud Build..."
-        gcloud builds submit --tag=$IMAGE_TAG . --timeout=1200s --machine-type=e2-highcpu-8
+        BUILD_ID=$(gcloud builds submit --tag=$IMAGE_TAG . --timeout=1200s --machine-type=e2-highcpu-8 --async --format="value(id)")
+        echo "📋 Build submitted with ID: $BUILD_ID"
+        echo "🔗 Build logs: https://console.cloud.google.com/cloud-build/builds/$BUILD_ID"
         
-        # Get the most recent build ID
-        BUILD_ID=$(gcloud builds list --limit=1 --format="value(id)")
-        echo "✅ Build completed with ID: $BUILD_ID"
-        
-        # Verify build succeeded
-        BUILD_STATUS=$(gcloud builds describe $BUILD_ID --format="value(status)")
-        if [ "$BUILD_STATUS" != "SUCCESS" ]; then
-          echo "❌ Build failed with status: $BUILD_STATUS"
-          echo "📋 Build logs: https://console.cloud.google.com/cloud-build/builds/$BUILD_ID"
-          exit 1
-        fi
+        # Wait for build to complete with polling
+        echo "⏳ Waiting for build to complete..."
+        while true; do
+          BUILD_STATUS=$(gcloud builds describe $BUILD_ID --format="value(status)")
+          echo "Current status: $BUILD_STATUS"
+          
+          if [ "$BUILD_STATUS" = "SUCCESS" ]; then
+            echo "✅ Build completed successfully!"
+            break
+          elif [ "$BUILD_STATUS" = "FAILURE" ] || [ "$BUILD_STATUS" = "TIMEOUT" ] || [ "$BUILD_STATUS" = "CANCELLED" ]; then
+            echo "❌ Build failed with status: $BUILD_STATUS"
+            echo "📋 Build logs: https://console.cloud.google.com/cloud-build/builds/$BUILD_ID"
+            exit 1
+          elif [ "$BUILD_STATUS" = "WORKING" ] || [ "$BUILD_STATUS" = "QUEUED" ]; then
+            echo "⏳ Build in progress, waiting 30 seconds..."
+            sleep 30
+          else
+            echo "❓ Unknown status: $BUILD_STATUS, waiting 30 seconds..."
+            sleep 30
+          fi
+        done
         
         echo "✅ Docker image built successfully: $IMAGE_TAG"
     
