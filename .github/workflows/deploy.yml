@@ -78,7 +78,7 @@ jobs:
         echo "🐳 Building Docker image: $IMAGE_TAG"
         
         # Cloud Build with Dockerfile and better error handling
-        BUILD_ID=$(gcloud builds submit --tag=$IMAGE_TAG . --timeout=1200s --machine-type=e2-highcpu-8 --format="value(id)" 2>&1) || {
+        BUILD_ID=$(gcloud builds submit --tag=$IMAGE_TAG . --timeout=1200s --machine-type=e2-highcpu-8 --format="value(id)") || {
           echo "❌ Cloud Build failed."
           echo ""
           echo "🔍 最新のビルド状況を確認中..."
@@ -98,7 +98,12 @@ jobs:
           exit 1
         }
         
-        echo "✅ Docker image built successfully: $IMAGE_TAG"
+        echo "✅ Docker image build submitted: $IMAGE_TAG"
+        echo "Build ID: $BUILD_ID"
+        
+        # Wait for build to complete
+        echo "⏳ Waiting for build to complete..."
+        gcloud builds log $BUILD_ID --stream
     
     - name: Deploy to Cloud Run
       env:
