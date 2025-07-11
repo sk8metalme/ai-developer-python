@@ -17,17 +17,20 @@ RUN apt-get update && apt-get install -y \
 # Copy requirements first for better caching
 COPY requirements.txt .
 
-# Install Python dependencies with verbose output for debugging
+# Install Python dependencies step by step for debugging
+RUN pip install --no-cache-dir flask>=2.0.0 requests>=2.25.0 gunicorn>=20.1.0
 RUN pip install --no-cache-dir --verbose -r requirements.txt
 
-# Copy application code
-COPY . .
+# Copy application code (essential files first)
+COPY main.py .
+COPY aibot.py .
+COPY atlassian_mcp_integration.py .
 
 # Expose port
 EXPOSE 8080
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+# Health check with extended timing
+HEALTHCHECK --interval=60s --timeout=30s --start-period=120s --retries=5 \
     CMD curl -f http://localhost:8080/health || exit 1
 
 # Run the application
