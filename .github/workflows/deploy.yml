@@ -77,8 +77,8 @@ jobs:
         
         echo "🐳 Building Docker image: $IMAGE_TAG"
         
-        # Cloud Build with better error handling and timeout
-        BUILD_ID=$(gcloud builds submit --tag=$IMAGE_TAG . --timeout=1200s --machine-type=e2-highcpu-8 --format="value(id)" 2>&1) || {
+        # Cloud Build with Dockerfile and better error handling
+        BUILD_ID=$(gcloud builds submit --tag=$IMAGE_TAG --file=Dockerfile . --timeout=1200s --machine-type=e2-highcpu-8 --format="value(id)" 2>&1) || {
           echo "❌ Cloud Build failed."
           echo ""
           echo "🔍 最新のビルド状況を確認中..."
