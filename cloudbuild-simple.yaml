@@ -1,0 +1,11 @@
+steps:
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['build', '-f', 'Dockerfile.simple', '-t', '$_IMAGE_TAG', '.']
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['push', '$_IMAGE_TAG']
+  
+substitutions:
+  _IMAGE_TAG: 'asia-northeast1-docker.pkg.dev/${PROJECT_ID}/slack-ai-bot/slack-ai-bot-test:${SHORT_SHA}'
+
+options:
+  logging: CLOUD_LOGGING_ONLY

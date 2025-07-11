@@ -77,26 +77,33 @@ jobs:
         
         echo "🐳 Building Docker image: $IMAGE_TAG"
         
-        # Cloud Build with better error handling and timeout
-        BUILD_ID=$(gcloud builds submit --tag=$IMAGE_TAG . --timeout=1200s --machine-type=e2-highcpu-8 --format="value(id)" 2>&1) || {
-          echo "❌ Cloud Build failed."
-          echo ""
-          echo "🔍 最新のビルド状況を確認中..."
-          LATEST_BUILD=$(gcloud builds list --limit=1 --format="value(id,status,logUrl)" --filter="status=FAILURE OR status=TIMEOUT")
-          if [ ! -z "$LATEST_BUILD" ]; then
-            echo "失敗したビルド: $LATEST_BUILD"
-            echo ""
-            echo "📋 ビルドログを確認してください："
-            echo "   https://console.cloud.google.com/cloud-build/builds"
-            echo ""
-            echo "🔧 一般的な解決策："
-            echo "   1. Dockerfileの構文確認"
-            echo "   2. requirements.txtの依存関係確認" 
-            echo "   3. ファイルパス・権限の確認"
-            echo "   4. リソース制限の確認"
+        # Cloud Build with async execution to avoid VPC-SC log streaming issues
+        echo "🚀 Submitting build to Cloud Build..."
+        BUILD_ID=$(gcloud builds submit --tag=$IMAGE_TAG . --timeout=1200s --machine-type=e2-highcpu-8 --async --format="value(id)")
+        echo "📋 Build submitted with ID: $BUILD_ID"
+        echo "🔗 Build logs: https://console.cloud.google.com/cloud-build/builds/$BUILD_ID"
+        
+        # Wait for build to complete with polling
+        echo "⏳ Waiting for build to complete..."
+        while true; do
+          BUILD_STATUS=$(gcloud builds describe $BUILD_ID --format="value(status)")
+          echo "Current status: $BUILD_STATUS"
+          
+          if [ "$BUILD_STATUS" = "SUCCESS" ]; then
+            echo "✅ Build completed successfully!"
+            break
+          elif [ "$BUILD_STATUS" = "FAILURE" ] || [ "$BUILD_STATUS" = "TIMEOUT" ] || [ "$BUILD_STATUS" = "CANCELLED" ]; then
+            echo "❌ Build failed with status: $BUILD_STATUS"
+            echo "📋 Build logs: https://console.cloud.google.com/cloud-build/builds/$BUILD_ID"
+            exit 1
+          elif [ "$BUILD_STATUS" = "WORKING" ] || [ "$BUILD_STATUS" = "QUEUED" ]; then
+            echo "⏳ Build in progress, waiting 30 seconds..."
+            sleep 30
+          else
+            echo "❓ Unknown status: $BUILD_STATUS, waiting 30 seconds..."
+            sleep 30
           fi
-          exit 1
-        }
+        done
         
         echo "✅ Docker image built successfully: $IMAGE_TAG"
     
@@ -141,12 +148,11 @@ jobs:
           --max-instances=$MAX_INSTANCES \
           --min-instances=$MIN_INSTANCES \
           --port=8080 \
-          --startup-cpu-boost \
+          --cpu-boost \
           --execution-environment=gen2 \
           --no-cpu-throttling \
-          --set-env-vars="CONFLUENCE_SPACE_KEY=DEV,LOG_LEVEL=$LOG_LEVEL,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,ENVIRONMENT=${{ env.ENVIRONMENT }},PORT=8080,PYTHONUNBUFFERED=1" \
-          --update-env-vars="GOOGLE_CLOUD_PROJECT=$PROJECT_ID" \
-          --update-secrets="SLACK_BOT_TOKEN=SLACK_BOT_TOKEN:latest,SLACK_APP_TOKEN=SLACK_APP_TOKEN:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,GITHUB_ACCESS_TOKEN=GITHUB_ACCESS_TOKEN:latest,CONFLUENCE_URL=CONFLUENCE_URL:latest,CONFLUENCE_USERNAME=CONFLUENCE_USERNAME:latest,CONFLUENCE_API_TOKEN=CONFLUENCE_API_TOKEN:latest"
+          --set-env-vars="CONFLUENCE_SPACE_KEY=DEV,LOG_LEVEL=$LOG_LEVEL,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,ENVIRONMENT=${{ env.ENVIRONMENT }},PYTHONUNBUFFERED=1" \
+          --set-secrets="SLACK_BOT_TOKEN=SLACK_BOT_TOKEN:latest,SLACK_APP_TOKEN=SLACK_APP_TOKEN:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,GITHUB_ACCESS_TOKEN=GITHUB_ACCESS_TOKEN:latest,CONFLUENCE_URL=CONFLUENCE_URL:latest,CONFLUENCE_USERNAME=CONFLUENCE_USERNAME:latest,CONFLUENCE_API_TOKEN=CONFLUENCE_API_TOKEN:latest"
     
     - name: Get service URL
       id: get_url
