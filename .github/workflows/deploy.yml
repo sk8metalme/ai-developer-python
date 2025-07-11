@@ -77,33 +77,23 @@ jobs:
         
         echo "🐳 Building Docker image: $IMAGE_TAG"
         
-        # Cloud Build with Dockerfile and better error handling
-        BUILD_ID=$(gcloud builds submit --tag=$IMAGE_TAG . --timeout=1200s --machine-type=e2-highcpu-8 --format="value(id)") || {
-          echo "❌ Cloud Build failed."
-          echo ""
-          echo "🔍 最新のビルド状況を確認中..."
-          LATEST_BUILD=$(gcloud builds list --limit=1 --format="value(id,status,logUrl)" --filter="status=FAILURE OR status=TIMEOUT")
-          if [ ! -z "$LATEST_BUILD" ]; then
-            echo "失敗したビルド: $LATEST_BUILD"
-            echo ""
-            echo "📋 ビルドログを確認してください："
-            echo "   https://console.cloud.google.com/cloud-build/builds"
-            echo ""
-            echo "🔧 一般的な解決策："
-            echo "   1. Dockerfileの構文確認"
-            echo "   2. requirements.txtの依存関係確認" 
-            echo "   3. ファイルパス・権限の確認"
-            echo "   4. リソース制限の確認"
-          fi
+        # Cloud Build with proper error handling  
+        echo "🚀 Submitting build to Cloud Build..."
+        gcloud builds submit --tag=$IMAGE_TAG . --timeout=1200s --machine-type=e2-highcpu-8
+        
+        # Get the most recent build ID
+        BUILD_ID=$(gcloud builds list --limit=1 --format="value(id)")
+        echo "✅ Build completed with ID: $BUILD_ID"
+        
+        # Verify build succeeded
+        BUILD_STATUS=$(gcloud builds describe $BUILD_ID --format="value(status)")
+        if [ "$BUILD_STATUS" != "SUCCESS" ]; then
+          echo "❌ Build failed with status: $BUILD_STATUS"
+          echo "📋 Build logs: https://console.cloud.google.com/cloud-build/builds/$BUILD_ID"
           exit 1
-        }
+        fi
         
-        echo "✅ Docker image build submitted: $IMAGE_TAG"
-        echo "Build ID: $BUILD_ID"
-        
-        # Wait for build to complete
-        echo "⏳ Waiting for build to complete..."
-        gcloud builds log $BUILD_ID --stream
+        echo "✅ Docker image built successfully: $IMAGE_TAG"
     
     - name: Deploy to Cloud Run
       env:
